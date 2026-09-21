@@ -1,0 +1,17 @@
+{
+  "name": "aio-downloader",
+  "version": "2.0.0",
+  "type": "module",
+  "main": "api/index.js",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "vercel-build": "node scripts/fetch-bin.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
