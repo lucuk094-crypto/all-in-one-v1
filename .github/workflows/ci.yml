@@ -10,7 +10,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
       - name: Syntax check (JS)
         run: |
           for f in $(git ls-files '*.js' | grep -v public/vendor); do node --check "$f" || exit 1; done
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
       - run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg python3-pip > /dev/null
           sudo pip3 install -q yt-dlp --break-system-packages
