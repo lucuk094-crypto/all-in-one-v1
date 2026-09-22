@@ -158,7 +158,9 @@ function fallbackCopy(txt) {
 function detectPlatform() {
     var badge = $('platBadge'); if (!badge || !$('urlInput')) return;
     var u = $('urlInput').value.toLowerCase();
-    var p = u.indexOf('tiktok') >= 0 ? 'TIKTOK' : u.indexOf('instagram') >= 0 ? 'INSTAGRAM' : u.indexOf('youtu') >= 0 ? 'YOUTUBE' : u.indexOf('facebook') >= 0 || u.indexOf('fb.') >= 0 ? 'FACEBOOK' : u.indexOf('twitter') >= 0 || u.indexOf('x.com') >= 0 ? 'X' : '';
+    var hosts = [['tiktok','TIKTOK'],['instagram','INSTAGRAM'],['youtu','YOUTUBE'],['facebook','FACEBOOK'],['fb.','FACEBOOK'],['twitter','X'],['x.com','X'],['threads','THREADS'],['soundcloud','SOUNDCLOUD'],['spotify','SPOTIFY'],['pinterest','PINTEREST'],['pin.it','PINTEREST'],['reddit','REDDIT'],['vimeo','VIMEO'],['dailymotion','DAILYMOTION'],['twitch','TWITCH'],['kick.com','KICK'],['likee','LIKEE'],['snack','SNACKVIDEO'],['capcut','CAPCUT'],['bilibili','BILIBILI'],['b23.tv','BILIBILI'],['douyin','DOUYIN'],['vk.com','VK'],['ok.ru','OK.RU'],['rutube','RUTUBE'],['t.me','TELEGRAM'],['snapchat','SNAPCHAT'],['streamable','STREAMABLE'],['rumble','RUMBLE'],['tumblr','TUMBLR'],['imgur','IMGUR'],['giphy','GIPHY'],['drive.google','GDRIVE'],['dropbox','DROPBOX'],['mediafire','MEDIAFIRE']];
+    var p = '';
+    for (var i = 0; i < hosts.length; i++) { if (u.indexOf(hosts[i][0]) >= 0) { p = hosts[i][1]; break; } }
     badge.textContent = p;
     badge.classList.toggle('hidden', !p);
 }

@@ -559,6 +559,64 @@ async function extractChildren(urls, limit = 4) {
 
 /* ================= Orkestrasi utama ================= */
 
+const DIRECT_EXT = {
+  mp4: 'video', m4v: 'video', webm: 'video', mov: 'video', mkv: 'video',
+  mp3: 'audio', m4a: 'audio', aac: 'audio', wav: 'audio', ogg: 'audio', opus: 'audio', flac: 'audio',
+  jpg: 'image', jpeg: 'image', png: 'image', gif: 'image', webp: 'image', bmp: 'image', svg: 'image',
+};
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
+// Link file media langsung (https://.../video.mp4): tanpa yt-dlp, verifikasi via HEAD/Range
+async function tryDirectFile(url) {
+  let ext = '';
+  try {
+    const m = new URL(url).pathname.match(/\.([a-z0-9]{2,5})$/i);
+    if (!m) return null;
+    ext = m[1].toLowerCase();
+  } catch { return null; }
+  const kind = DIRECT_EXT[ext];
+  if (!kind) return null;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    let r = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: ctrl.signal, headers: { 'User-Agent': BROWSER_UA, Accept: '*/*' } });
+    if (!r.ok) {
+      r = await fetch(url, { redirect: 'follow', signal: ctrl.signal, headers: { 'User-Agent': BROWSER_UA, Range: 'bytes=0-0', Accept: '*/*' } });
+    }
+    clearTimeout(timer);
+    if (!r.ok && r.status !== 206) return null;
+    const ct = (r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (ct.startsWith('text/html') || !ct) return null;
+    let len = +r.headers.get('content-length') || 0;
+    if (!len && r.status === 206) {
+      const cr = r.headers.get('content-range') || '';
+      const tm = cr.match(/\/(\d+)$/);
+      if (tm) len = +tm[1];
+    }
+    let fname = 'media';
+    try { fname = decodeURIComponent(new URL(url).pathname.split('/').pop() || 'media').slice(0, 80); } catch {}
+    const item = {
+      type: kind, url, quality: 'Original', extension: ext,
+      filesize: len || null, filesize_label: humanSize(len),
+      thumbnail: kind === 'image' ? url : null,
+      has_audio: kind !== 'image',
+    };
+    const downloads = { video: [], audio: [], image: [], subtitles: [] };
+    downloads[kind].push(item);
+    const known = platformFromUrl(url);
+    return {
+      source: 'direct', downloads,
+      data: [item],
+      info: {
+        title: fname, thumbnail: item.thumbnail, duration: null, duration_label: '-',
+        uploader: null, platform: known === 'Direct Link' ? 'Direct File' : known,
+        webpage_url: url,
+      },
+      original_url: url,
+    };
+  } catch { return null; }
+}
+
 export async function extractMedia(rawUrl) {
   const v = validateTargetUrl(rawUrl);
   if (!v.ok) return { ok: false, status: 400, error: v.error };
@@ -566,6 +624,8 @@ export async function extractMedia(rawUrl) {
 
   const hit = await cacheGet(url);
   if (hit) return { ok: true, cached: true, ...hit.data };
+  const direct = await tryDirectFile(url);
+  if (direct) { await cacheSet(url, direct); return { ok: true, ...direct }; }
   if (inflight.has(url)) {
     try { return await inflight.get(url); } catch { /* lanjut */ }
   }
@@ -710,10 +770,39 @@ function platformFromUrl(url) {
   if (h === 'x.com' || h.includes('twitter')) return 'X (Twitter)';
   if (h.includes('soundcloud')) return 'SoundCloud';
   if (h.includes('threads')) return 'Threads';
-  if (h.includes('pinterest')) return 'Pinterest';
-  if (h.includes('reddit')) return 'Reddit';
+  if (h.includes('pinterest') || h === 'pin.it') return 'Pinterest';
+  if (h.includes('reddit') || h === 'redd.it') return 'Reddit';
   if (h.includes('vimeo')) return 'Vimeo';
+  if (h.includes('dailymotion') || h === 'dai.ly') return 'Dailymotion';
   if (h.includes('twitch')) return 'Twitch';
+  if (h.includes('kick.com')) return 'Kick';
+  if (h.includes('likee') || h.includes('l.likee')) return 'Likee';
+  if (h.includes('snackvideo') || h.includes('snack-video')) return 'SnackVideo';
+  if (h.includes('capcut')) return 'CapCut';
+  if (h.includes('bilibili') || h === 'b23.tv') return 'Bilibili';
+  if (h.includes('douyin')) return 'Douyin';
+  if (h.includes('xiaohongshu') || h.includes('xhslink')) return 'Xiaohongshu';
+  if (h.includes('vk.com') || h.includes('vkontakte')) return 'VK';
+  if (h.includes('ok.ru') || h.includes('odnoklassniki')) return 'OK.ru';
+  if (h.includes('rutube')) return 'Rutube';
+  if (h.includes('t.me') || h.includes('telegram')) return 'Telegram';
+  if (h.includes('snapchat')) return 'Snapchat';
+  if (h.includes('spotify')) return 'Spotify';
+  if (h === 't.co') return 'X (Twitter)';
+  if (h.includes('streamable')) return 'Streamable';
+  if (h.includes('rumble')) return 'Rumble';
+  if (h.includes('odysee')) return 'Odysee';
+  if (h.includes('bandcamp')) return 'Bandcamp';
+  if (h.includes('mixcloud')) return 'Mixcloud';
+  if (h.includes('audiomack')) return 'Audiomack';
+  if (h.includes('tumblr')) return 'Tumblr';
+  if (h.includes('flickr')) return 'Flickr';
+  if (h.includes('imgur')) return 'Imgur';
+  if (h.includes('giphy')) return 'Giphy';
+  if (h.includes('tenor')) return 'Tenor';
+  if (h.includes('drive.google') || h.includes('docs.google')) return 'Google Drive';
+  if (h.includes('dropbox')) return 'Dropbox';
+  if (h.includes('mediafire')) return 'MediaFire';
   return 'Direct Link';
 }
 
