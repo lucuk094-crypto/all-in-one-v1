@@ -2,6 +2,9 @@
 // Usage: BASE=http://localhost:3000 node smoke/smoke.js
 const BASE = process.env.BASE || 'http://localhost:3000';
 const YT = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+const TT = 'https://www.tiktok.com/@khaby.lame/video/6971795480774708485'; // oEmbed-verified 2026-09-22
+const FB = 'https://www.facebook.com/share/r/176Gd2Y3F5/';
+const IG = 'https://www.instagram.com/reel/Da_eH4pva9C/?igsh=MWpzNXdhbjE1cjZmOA==';
 let fails = 0;
 async function t(name, fn) {
   try { await fn(); console.log('PASS', name); }
@@ -29,6 +32,21 @@ async function post(path, body) {
     assert(r.ok && j.success, 'analyze failed: ' + JSON.stringify(j).slice(0, 200));
     assert(j.downloads && ((j.downloads.video || []).length + (j.downloads.audio || []).length + (j.downloads.image || []).length) > 0, 'no downloads');
     assert(j.info && j.info.title, 'no info');
+  });
+  await t('analyze TikTok', async () => {
+    const { r, j } = await post('/api/index', { url: TT });
+    assert(r.ok && j.success, 'analyze failed: ' + JSON.stringify(j).slice(0, 200));
+    assert(j.downloads && (j.downloads.video || []).length > 0, 'no video');
+  });
+  await t('analyze FB share', async () => {
+    const { r, j } = await post('/api/index', { url: FB });
+    assert(r.ok && j.success, 'analyze failed: ' + JSON.stringify(j).slice(0, 200));
+    assert(j.downloads && ((j.downloads.video || []).length + (j.downloads.audio || []).length) > 0, 'no downloads');
+  });
+  await t('analyze IG reel', async () => {
+    const { r, j } = await post('/api/index', { url: IG });
+    assert(r.ok && j.success, 'analyze failed: ' + JSON.stringify(j).slice(0, 200));
+    assert(j.downloads && ((j.downloads.video || []).length + (j.downloads.audio || []).length) > 0, 'no downloads');
   });
   await t('search', async () => {
     const r = await fetch(BASE + '/api/search?q=never%20gonna');
