@@ -105,3 +105,26 @@ postingan akun tertentu**. Solusinya: pasang `cookies.txt` dari akun IG yang log
 - Cookies kedaluwarsa tiap beberapa minggu/bulan → export ulang kalau error
   login muncul lagi.
 - **Jangan commit `cookies.txt` ke Git** (sudah di `.gitignore`) — itu setara password.
+
+## API Nexa (fallback otomatis khusus Instagram & Facebook)
+
+Selain yt-dlp, link IG/FB juga didukung API pihak ketiga
+`https://api.nexadev.my.id` (`/api/ig?url=...` dan `/api/fb?url=...`):
+
+- **Default:** yt-dlp dulu (hasil lebih kaya: judul, thumbnail, multi-kualitas,
+  subtitle). Kalau yt-dlp gagal (login wall, rate-limit, varian link aneh),
+  otomatis dicoba via Nexa (`source: nexa-fallback`). Kalau Nexa sedang
+  gangguan, error yt-dlp yang asli tetap dikembalikan.
+- **Catatan jujur:** Nexa butuh header User-Agent browser (sudah ditangani
+  kode), tidak mengembalikan judul/thumbnail, dan kadang flaky (teramati:
+  error 520/403 dan `Gagal terhubung ke server API Facebook` yang sembuh
+  sendiri saat dicoba ulang). Konten private/unavailable tetap gagal di
+  kedua jalur.
+
+**Env (opsional):**
+
+| Env | Default | Fungsi |
+|---|---|---|
+| `NEXA_ENABLED` | `1` | Set `0` untuk mematikan jalur Nexa |
+| `NEXA_FIRST` | `0` | Set `1` untuk mencoba Nexa DULUAN utk link IG/FB |
+| `NEXA_API_BASE` | `https://api.nexadev.my.id` | Ganti base URL API bila perlu |

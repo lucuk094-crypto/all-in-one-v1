@@ -326,6 +326,14 @@ async function probeMulti(url) {
 function isTikTokUrl(url) {
   return /(^|\.)(tiktok\.com|vt\.tiktok\.com)$/i.test(safeHost(url)) || /tiktok\.com\//i.test(url);
 }
+function isInstagramUrl(url) {
+  const h = safeHost(url);
+  return /(^|\.)(instagram\.com|instagr\.am|ig\.me)$/i.test(h) || /instagram\.com\//i.test(url);
+}
+function isFacebookUrl(url) {
+  const h = safeHost(url);
+  return /(^|\.)(facebook\.com|fb\.com|fb\.watch)$/i.test(h) || /facebook\.com\//i.test(url);
+}
 function safeHost(url) {
   try { return new URL(url).hostname.toLowerCase(); } catch { return ''; }
 }
@@ -626,6 +634,15 @@ export async function extractMedia(rawUrl) {
   if (hit) return { ok: true, cached: true, ...hit.data };
   const direct = await tryDirectFile(url);
   if (direct) { await cacheSet(url, direct); return { ok: true, ...direct }; }
+  if (NEXA_FIRST && (isInstagramUrl(url) || isFacebookUrl(url))) {
+    const nx = await fetchNexa(url);
+    if (nx) {
+      const payload = { source: 'nexa', downloads: nx.downloads, info: nx.info, original_url: url };
+      payload.data = [...nx.downloads.video, ...nx.downloads.audio, ...nx.downloads.image];
+      await cacheSet(url, payload);
+      return { ok: true, ...payload };
+    }
+  }
   if (inflight.has(url)) {
     try { return await inflight.get(url); } catch { /* lanjut */ }
   }
@@ -706,6 +723,15 @@ export async function extractMedia(rawUrl) {
             return { ok: true, ...payload };
           }
         }
+        if (isInstagramUrl(url) || isFacebookUrl(url)) {
+          const nx = await fetchNexa(url);
+          if (nx) {
+            const payload = { source: 'nexa-fallback', downloads: nx.downloads, info: nx.info, original_url: url };
+            payload.data = [...nx.downloads.video, ...nx.downloads.audio, ...nx.downloads.image];
+            await cacheSet(url, payload);
+            return { ok: true, ...payload };
+          }
+        }
         const cb = await fetchCobalt(url);
         if (cb) {
           const payload = { source: 'cobalt-fallback', downloads: cb.downloads, info: cb.info, original_url: url };
@@ -726,6 +752,15 @@ export async function extractMedia(rawUrl) {
         if (fb) {
           const payload = { source: 'tikwm-fallback', downloads: fb.downloads, info: fb.info, original_url: url };
           payload.data = [...fb.downloads.video, ...fb.downloads.audio, ...fb.downloads.image];
+          await cacheSet(url, payload);
+          return { ok: true, ...payload };
+        }
+      }
+      if (isInstagramUrl(url) || isFacebookUrl(url)) {
+        const nx = await fetchNexa(url);
+        if (nx) {
+          const payload = { source: 'nexa-fallback', downloads: nx.downloads, info: nx.info, original_url: url };
+          payload.data = [...nx.downloads.video, ...nx.downloads.audio, ...nx.downloads.image];
           await cacheSet(url, payload);
           return { ok: true, ...payload };
         }
@@ -897,6 +932,97 @@ export async function fetchCobalt(url) {
         title: j.filename || 'Hasil via Cobalt', thumbnail: image[0]?.url || video[0]?.thumbnail || null,
         duration: null, duration_label: '-', uploader: null,
         platform: platformFromUrl(url), webpage_url: url,
+      },
+    };
+  } catch { return null; }
+}
+
+/* ============ API Nexa (fallback khusus Instagram & Facebook) ============
+   Endpoint: GET {NEXA_API_BASE}/api/ig?url=... & /api/fb?url=...
+   - WAJIB header User-Agent browser (tanpa itu Cloudflare balas 403).
+   - Dipakai otomatis saat yt-dlp gagal untuk URL IG/FB; set NEXA_FIRST=1
+     untuk mencoba Nexa duluan, NEXA_ENABLED=0 untuk mematikan. */
+const NEXA_API_BASE = (process.env.NEXA_API_BASE || 'https://api.nexadev.my.id').replace(/\/$/, '');
+const NEXA_ENABLED = process.env.NEXA_ENABLED !== '0';
+const NEXA_FIRST = process.env.NEXA_FIRST === '1';
+
+function extFromUrl(u, fallback) {
+  const m = String(u || '').match(/\.([a-z0-9]{2,4})(?:[?#]|$)/i);
+  return (m && m[1].toLowerCase()) || fallback;
+}
+
+async function probeSize(u, ms = 8000) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    const H = (extra) => ({ 'User-Agent': BROWSER_UA, Accept: '*/*', ...extra });
+    const total = (r) => {
+      let len = +r.headers.get('content-length') || 0;
+      if (r.status === 206) {
+        const m = (r.headers.get('content-range') || '').match(/\/(\d+)$/);
+        if (m) len = +m[1];
+      }
+      return len;
+    };
+    let r = await fetch(u, { method: 'HEAD', redirect: 'follow', signal: ctrl.signal, headers: H() });
+    let len = (r.ok || r.status === 206) ? total(r) : 0;
+    if (!len) {
+      r = await fetch(u, { redirect: 'follow', signal: ctrl.signal, headers: H({ Range: 'bytes=0-0' }) });
+      if (r.ok || r.status === 206) len = total(r);
+      try { r.body?.cancel?.(); } catch {}
+    }
+    clearTimeout(t);
+    return len;
+  } catch { return 0; }
+}
+
+export async function fetchNexa(url) {
+  if (!NEXA_ENABLED) return null;
+  const isIG = isInstagramUrl(url);
+  const isFB = !isIG && isFacebookUrl(url);
+  if (!isIG && !isFB) return null;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 45000);
+    const res = await fetch(`${NEXA_API_BASE}${isIG ? '/api/ig?url=' : '/api/fb?url='}${encodeURIComponent(url)}`, {
+      signal: ctrl.signal, redirect: 'follow',
+      headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json' },
+    });
+    clearTimeout(t);
+    const j = await res.json().catch(() => null);
+    if (!j || j.status !== true || !Array.isArray(j.data) || !j.data.length) return null;
+    const items = [];
+    const seen = new Set();
+    j.data.slice(0, 10).forEach((it, i) => {
+      const src = it?.url;
+      if (!src || typeof src !== 'string' || !src.startsWith('http') || seen.has(src)) return;
+      seen.add(src);
+      if (isFB) {
+        const q = String(it.quality || '').toUpperCase();
+        items.push({ type: 'video', url: src, quality: q === 'HD' ? 'HD 720p' : q === 'SD' ? 'SD 360p' : (it.quality || `Video ${i + 1}`), extension: extFromUrl(src, 'mp4'), has_audio: true });
+      } else {
+        const ty = String(it.type || '').toLowerCase();
+        const looksImg = /jpe?g|png|webp|gif|bmp|image|photo|picture/.test(ty) || /\.(jpe?g|png|webp|gif|bmp)(\?|#|$)/i.test(src);
+        items.push({ type: looksImg ? 'image' : 'video', url: src, quality: looksImg ? `Foto ${i + 1}` : 'HD', extension: extFromUrl(src, looksImg ? 'jpg' : 'mp4'), has_audio: !looksImg });
+      }
+    });
+    if (!items.length) return null;
+    const sizes = await Promise.all(items.map((m) => probeSize(m.url)));
+    const video = [], audio = [], image = [];
+    items.forEach((m, i) => {
+      const sz = sizes[i] || null;
+      const full = { ...m, filesize: sz, filesize_label: humanSize(sz), thumbnail: m.type === 'image' ? m.url : null };
+      (m.type === 'image' ? image : video).push(full);
+    });
+    return {
+      downloads: { video, audio, image, subtitles: [] },
+      info: {
+        title: isIG ? 'Instagram Media' : 'Facebook Video',
+        thumbnail: image[0]?.url || null,
+        duration: null, duration_label: '-',
+        uploader: isIG ? 'Instagram' : 'Facebook',
+        platform: isIG ? 'Instagram' : 'Facebook',
+        webpage_url: url,
       },
     };
   } catch { return null; }
