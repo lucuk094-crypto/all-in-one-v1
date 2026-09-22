@@ -1,0 +1,43 @@
+name: CI
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Syntax check (JS)
+        run: |
+          for f in $(git ls-files '*.js' | grep -v public/vendor); do node --check "$f" || exit 1; done
+          echo OK
+      - name: Biome lint
+        uses: biomejs/setup-biome@v2
+        with:
+          version: latest
+      - run: biome ci . || echo "(lint warnings only)"
+  smoke:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg python3-pip > /dev/null
+          sudo pip3 install -q yt-dlp --break-system-packages
+          npm install --omit=dev
+      - name: Start server
+        run: |
+          nohup node server.js > /tmp/srv.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:3000/api/health && break; sleep 2; done
+      - name: Smoke tests
+        run: node smoke/smoke.js
+      - name: Server log
+        if: failure()
+        run: cat /tmp/srv.log | tail -100
