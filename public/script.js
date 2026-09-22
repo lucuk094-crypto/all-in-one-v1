@@ -54,7 +54,7 @@ async function initServer() {
     } catch (e) { /* default */ }
     setupTurnstile();
     setupUmami();
-    checkCookies();
+    // Banner cookies di homepage dimatikan (mengganggu); cek via halaman Admin.
     var u = null;
     try { u = new URLSearchParams(location.search).get('u'); } catch (e) { }
     if (u) {
@@ -105,25 +105,6 @@ function setupUmami() {
     s.src = String(url).replace(/\/$/, '') + '/script.js';
     document.head.appendChild(s);
 }
-async function checkCookies() {
-    try {
-        var r = await fetch('/api/cookies-health');
-        var j = await r.json();
-        if (j && j.success && !j.ok && document.querySelector('.container')) {
-            var d = document.createElement('div');
-            d.className = 'cookie-warn';
-            d.innerHTML = ic('alert', 16) + ' <span>' + esc(t('e.cookies')) + '</span> ';
-            var b = document.createElement('button');
-            b.className = 'mini-btn plain'; b.innerHTML = ic('close', 14);
-            b.setAttribute('aria-label', 'close');
-            b.onclick = function () { d.remove(); };
-            d.appendChild(b);
-            var c = document.querySelector('.container');
-            c.insertBefore(d, c.firstChild);
-        }
-    } catch (e) { /* offline */ }
-}
-
 /* ---------- riwayat ---------- */
 function getHistory() { try { return JSON.parse(localStorage.getItem('dlHistory') || '[]'); } catch (e) { return []; } }
 function saveHistory(item) {
