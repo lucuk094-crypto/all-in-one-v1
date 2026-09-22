@@ -7,6 +7,20 @@
     "api/*.js": {
       "maxDuration": 60,
       "includeFiles": "api/bin/**"
+    },
+    "api/*/*.js": {
+      "maxDuration": 60,
+      "includeFiles": "api/bin/**"
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/health", "destination": "/api/meta?p=health" },
+    { "source": "/api/config", "destination": "/api/meta?p=config" },
+    { "source": "/api/env.js", "destination": "/api/meta?p=env" },
+    { "source": "/api/cookies-health", "destination": "/api/meta?p=cookies" },
+    { "source": "/api/stats", "destination": "/api/admin?p=stats" },
+    { "source": "/api/client-log", "destination": "/api/admin?p=client-log" },
+    { "source": "/api/mp3", "destination": "/api/convert?p=mp3" },
+    { "source": "/api/merge", "destination": "/api/convert?p=merge" }
+  ]
 }
