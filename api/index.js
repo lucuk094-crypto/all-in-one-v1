@@ -53,8 +53,140 @@ const CACHE_MAX = 100;
 const MULTI_AUTO_MAX = 12;   // album/carousel <= N item langsung diekstrak semua
 const PLAYLIST_CAP = 30;     // playlist besar: tampilkan N item pertama
 
-const cache = new Map();
+const memCache = new Map();
 const inflight = new Map();
+
+/* ================= Infra: Redis opsional, rate-limit, cache, stats ================= */
+// Jika UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN diset -> pakai Redis (lintas instance).
+// Jika tidak -> fallback memori (mode server tunggal).
+const UP_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UP_TOK = process.env.UPSTASH_REDIS_REST_TOKEN;
+const USE_UPSTASH = !!(UP_URL && UP_TOK);
+
+async function upstash(...args) {
+  const r = await fetch(UP_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${UP_TOK}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j.result;
+}
+function sha(s) { return crypto.createHash('sha256').update(String(s)).digest('hex').slice(0, 32); }
+
+export function getClientIp(req) {
+  if (req.ip) return req.ip;
+  const fwd = req.headers?.['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd) return fwd.split(',')[0].trim();
+  return req.socket?.remoteAddress || 'unknown';
+}
+
+const rlMem = new Map();
+export async function apiRateLimit(req, res, { max = 30, windowSec = 60 } = {}) {
+  const ip = getClientIp(req);
+  const bucket = Math.floor(Date.now() / 1000 / windowSec);
+  let n = 1;
+  if (USE_UPSTASH) {
+    try {
+      const k = `rl:${ip}:${bucket}`;
+      n = await upstash('INCR', k);
+      if (n === 1) await upstash('EXPIRE', k, windowSec + 10);
+    } catch { n = memBump(); }
+  } else {
+    n = memBump();
+  }
+  function memBump() {
+    const k = `${ip}:${bucket}`;
+    const v = (rlMem.get(k) || 0) + 1;
+    rlMem.set(k, v);
+    if (rlMem.size > 5000) {
+      for (const kk of rlMem.keys()) {
+        if (+String(kk).split(':').pop() < bucket - 1) rlMem.delete(kk);
+      }
+    }
+    return v;
+  }
+  try {
+    res.setHeader('RateLimit-Limit', String(max));
+    res.setHeader('RateLimit-Remaining', String(Math.max(0, max - n)));
+    res.setHeader('RateLimit-Reset', String((bucket + 1) * windowSec));
+  } catch {}
+  if (n > max) {
+    res.status(429).json({ success: false, error: 'Terlalu banyak request. Tunggu sebentar lalu coba lagi.' });
+    return false;
+  }
+  return true;
+}
+
+async function cacheGet(url) {
+  const m = memCache.get(url);
+  if (m && Date.now() - m.time < CACHE_TTL_MS) return { data: m.data, mem: true };
+  if (USE_UPSTASH) {
+    try {
+      const r = await upstash('GET', `ac:${sha(url)}`);
+      if (r) return { data: JSON.parse(r), mem: false };
+    } catch {}
+  }
+  return null;
+}
+async function cacheSet(url, payload) {
+  if (memCache.size >= CACHE_MAX) memCache.delete(memCache.keys().next().value);
+  memCache.set(url, { data: payload, time: Date.now() });
+  if (USE_UPSTASH) {
+    try {
+      const s = JSON.stringify(payload);
+      if (s.length < 200000) await upstash('SET', `ac:${sha(url)}`, s, 'EX', 600);
+    } catch {}
+  }
+}
+
+// Statistik ringan (memori) untuk halaman admin
+export const stats = {
+  startedAt: Date.now(), total: 0, ok: 0, err: 0,
+  byPlatform: {}, byEndpoint: {},
+  jobs: { created: 0, done: 0, error: 0, cancelled: 0 },
+  recent: [], errors: [], clientErrors: [],
+};
+export function logReq(endpoint, platform, ok, ms, err) {
+  stats.total++;
+  if (ok) stats.ok++; else stats.err++;
+  const p = platform || '?';
+  stats.byPlatform[p] = (stats.byPlatform[p] || 0) + 1;
+  stats.byEndpoint[endpoint] = (stats.byEndpoint[endpoint] || 0) + 1;
+  stats.recent.unshift({ t: Date.now(), ep: endpoint, p, ok: !!ok, ms: Math.round(ms || 0) });
+  if (stats.recent.length > 100) stats.recent.pop();
+  if (!ok && err) {
+    stats.errors.unshift({ t: Date.now(), ep: endpoint, p, err: String(err).slice(0, 200) });
+    if (stats.errors.length > 50) stats.errors.pop();
+  }
+}
+export function getStats() {
+  return {
+    ...stats,
+    uptimeSec: Math.round((Date.now() - stats.startedAt) / 1000),
+    redis: USE_UPSTASH, jobsActive: jobsActiveCount(),
+    recent: stats.recent.slice(0, 30), errors: stats.errors.slice(0, 20),
+    clientErrors: stats.clientErrors.slice(0, 20),
+  };
+}
+
+// Pelaporan error opsional via webhook (Discord/Slack/ntfy) — env ERROR_WEBHOOK
+const ERR_WEBHOOK = process.env.ERROR_WEBHOOK;
+export function reportError(context, err) {
+  const msg = `[aio-downloader] ${context}: ${err?.message || err}`;
+  console.error(msg);
+  if (!ERR_WEBHOOK) return;
+  fetch(ERR_WEBHOOK, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: String(msg).slice(0, 1800) }),
+  }).catch(() => {});
+}
+if (!globalThis.__aio_err_hook) {
+  globalThis.__aio_err_hook = true;
+  process.on('uncaughtException', (e) => reportError('uncaughtException', e));
+  process.on('unhandledRejection', (e) => reportError('unhandledRejection', e));
+}
 
 /* ================= Helpers ================= */
 
@@ -130,7 +262,7 @@ export function validateTargetUrl(raw) {
 function friendlyYtDlpError(stderr) {
   const s = String(stderr || '');
   if (/unsupported url/i.test(s)) return { status: 400, error: 'Link tidak didukung. Pastikan itu link video/foto/audio publik (TikTok, IG, YouTube, X, FB, dll).' };
-  if (/private|login required|log in to|cookies.*(required|expired)|not logged/i.test(s)) return { status: 403, error: 'Konten private / butuh login (sering terjadi di IG Story & akun dikunci). Coba link publik, atau pasang cookies.txt di server.' };
+  if (/private|login required|log in to|cookies.*(required|expired)|not logged/i.test(s)) return { status: 403, error: 'Konten private / butuh login (sering terjadi di IG Story & akun dikunci). Coba link publik, atau pasang cookies.txt di server.', hint: HAS_COOKIES ? 'cookies_maybe_expired' : 'need_cookies' };
   if (/not available|removed|deleted|this .* (is private|has been removed)|not found|no video could be found|no media found/i.test(s)) return { status: 404, error: 'Media tidak ditemukan. Mungkin sudah dihapus, link salah, atau postingan teks tanpa media.' };
   if (/timed out|timeout|network is unreachable|temporary failure in name resolution/i.test(s)) return { status: 504, error: 'Koneksi ke server sumber timeout. Coba lagi sebentar.' };
   if (/rate-limit|too many requests|429|not granting access/i.test(s)) return { status: 429, error: 'Platform sumber membatasi request (rate limit, sering dari IG). Tunggu ±1 menit lalu coba lagi.' };
@@ -382,7 +514,7 @@ async function fetchTikWmFallback(url) {
     }
     if (!video.length && !audio.length && !image.length) return null;
     return {
-      downloads: { video, audio, image },
+      downloads: { video, audio, image, subtitles: [] },
       info: {
         title: d.title || 'TikTok Video',
         thumbnail: cover,
@@ -422,8 +554,8 @@ export async function extractMedia(rawUrl) {
   if (!v.ok) return { ok: false, status: 400, error: v.error };
   const url = v.url;
 
-  const hit = cache.get(url);
-  if (hit && Date.now() - hit.time < CACHE_TTL_MS) return { ok: true, cached: true, ...hit.data };
+  const hit = await cacheGet(url);
+  if (hit) return { ok: true, cached: true, ...hit.data };
   if (inflight.has(url)) {
     try { return await inflight.get(url); } catch { /* lanjut */ }
   }
@@ -462,12 +594,12 @@ export async function extractMedia(rawUrl) {
         });
         const payload = {
           source: 'yt-dlp', is_album: true,
-          downloads: { video: video.slice(0, 12), audio: [], image: image.slice(0, 12) },
+          downloads: { video: video.slice(0, 12), audio: [], image: image.slice(0, 12), subtitles: [] },
           info: buildInfo({ ...probe.info, title: `${parentTitle} (${okKids.length} item)` }, url),
           items, original_url: url,
         };
         payload.data = [...payload.downloads.video, ...payload.downloads.image];
-        saveCache(url, payload);
+        await cacheSet(url, payload);
         return { ok: true, ...payload };
       }
 
@@ -482,11 +614,11 @@ export async function extractMedia(rawUrl) {
       const payload = {
         source: 'yt-dlp', is_playlist: true,
         playlist: { title: probe.info.title || 'Playlist', total: probe.info.playlist_count || entries.length, shown: items.length },
-        items, downloads: { video: [], audio: [], image: [] }, data: [],
+        items, downloads: { video: [], audio: [], image: [], subtitles: [] }, data: [],
         info: buildInfo({ ...probe.info, title: probe.info.title || 'Playlist' }, url),
         original_url: url,
       };
-      saveCache(url, payload);
+      await cacheSet(url, payload);
       return { ok: true, ...payload };
     }
 
@@ -500,9 +632,16 @@ export async function extractMedia(rawUrl) {
           if (fb) {
             const payload = { source: 'tikwm-fallback', downloads: fb.downloads, info: fb.info, original_url: url };
             payload.data = [...fb.downloads.video, ...fb.downloads.audio, ...fb.downloads.image];
-            saveCache(url, payload);
+            await cacheSet(url, payload);
             return { ok: true, ...payload };
           }
+        }
+        const cb = await fetchCobalt(url);
+        if (cb) {
+          const payload = { source: 'cobalt-fallback', downloads: cb.downloads, info: cb.info, original_url: url };
+          payload.data = [...cb.downloads.video, ...cb.downloads.audio, ...cb.downloads.image];
+          await cacheSet(url, payload);
+          return { ok: true, ...payload };
         }
         return single;
       }
@@ -510,16 +649,23 @@ export async function extractMedia(rawUrl) {
     }
 
     const picked = pickDownloads(info);
-    const downloads = { video: picked.video, audio: picked.audio, image: picked.image };
+    const downloads = { video: picked.video, audio: picked.audio, image: picked.image, subtitles: pickSubtitles(info) };
     if (!downloads.video.length && !downloads.audio.length && !downloads.image.length) {
       if (isTikTokUrl(url)) {
         const fb = await fetchTikWmFallback(url);
         if (fb) {
           const payload = { source: 'tikwm-fallback', downloads: fb.downloads, info: fb.info, original_url: url };
           payload.data = [...fb.downloads.video, ...fb.downloads.audio, ...fb.downloads.image];
-          saveCache(url, payload);
+          await cacheSet(url, payload);
           return { ok: true, ...payload };
         }
+      }
+      const cb2 = await fetchCobalt(url);
+      if (cb2) {
+        const payload = { source: 'cobalt-fallback', downloads: cb2.downloads, info: cb2.info, original_url: url };
+        payload.data = [...cb2.downloads.video, ...cb2.downloads.audio, ...cb2.downloads.image];
+        await cacheSet(url, payload);
+        return { ok: true, ...payload };
       }
       return { ok: false, status: 404, error: 'Tidak ada file yang bisa diunduh dari link ini.' };
     }
@@ -535,7 +681,7 @@ export async function extractMedia(rawUrl) {
       }),
       original_url: url,
     };
-    saveCache(url, payload);
+    await cacheSet(url, payload);
     return { ok: true, ...payload };
   })();
 
@@ -543,9 +689,470 @@ export async function extractMedia(rawUrl) {
   try { return await job; } finally { inflight.delete(url); }
 }
 
-function saveCache(url, payload) {
-  if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
-  cache.set(url, { data: payload, time: Date.now() });
+/* ================= Fitur: subtitle, search, cobalt, jobs ================= */
+
+function platformFromUrl(url) {
+  const h = safeHost(url);
+  if (h.includes('tiktok')) return 'TikTok';
+  if (h.includes('instagram')) return 'Instagram';
+  if (h.includes('youtube') || h.includes('youtu.be')) return 'YouTube';
+  if (h.includes('facebook') || h.includes('fb.')) return 'Facebook';
+  if (h === 'x.com' || h.includes('twitter')) return 'X (Twitter)';
+  if (h.includes('soundcloud')) return 'SoundCloud';
+  if (h.includes('threads')) return 'Threads';
+  if (h.includes('pinterest')) return 'Pinterest';
+  if (h.includes('reddit')) return 'Reddit';
+  if (h.includes('vimeo')) return 'Vimeo';
+  if (h.includes('twitch')) return 'Twitch';
+  return 'Direct Link';
+}
+
+function pickSubtitles(info) {
+  const out = [];
+  const seen = new Set();
+  const pushGroup = (dict, auto) => {
+    if (!dict) return;
+    const langs = Object.keys(dict).sort((a, b) =>
+      ((b === 'id') - (a === 'id')) || ((b === 'en') - (a === 'en')));
+    for (const lang of langs) {
+      if (out.length >= 10) break;
+      const arr = dict[lang] || [];
+      const pref = arr.find((f) => ['vtt', 'srv1', 'srv2', 'srv3', 'ttml'].includes(f.ext)) || arr[0];
+      if (!pref?.url) continue;
+      const key = `${lang}|${auto ? 'a' : 'm'}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ lang, name: pref.name || lang, ext: pref.ext || 'vtt', url: pref.url, auto: !!auto });
+    }
+  };
+  pushGroup(info.subtitles, false);
+  if (out.length < 10) pushGroup(info.automatic_captions, true);
+  return out;
+}
+
+function mapFlatItem(e) {
+  return {
+    title: e.title || 'Tanpa judul',
+    thumbnail: e.thumbnail || (Array.isArray(e.thumbnails) && e.thumbnails.length ? e.thumbnails[e.thumbnails.length - 1]?.url : null),
+    duration: e.duration || null,
+    duration_label: humanDuration(e.duration),
+    url: e.webpage_url || e.url,
+    channel: e.channel || e.uploader || null,
+  };
+}
+
+export async function searchVideos(q, max = 10) {
+  q = String(q || '').trim().slice(0, 100);
+  if (!q) return { ok: false, status: 400, error: 'Kata kunci pencarian kosong.' };
+  max = Math.min(Math.max(parseInt(max) || 10, 1), 20);
+  const r = await runYtDlpJson([...baseArgs(), '--flat-playlist', '--playlist-end', String(max), '--skip-download', '-J', `ytsearch${max}:${q}`], 90000);
+  if (!r.ok) return r;
+  const items = (r.info?.entries || []).map(mapFlatItem).filter((i) => i.url);
+  if (!items.length) return { ok: false, status: 404, error: 'Tidak ada hasil untuk kata kunci itu.' };
+  return { ok: true, items };
+}
+
+// Fallback via instance Cobalt pribadi (env COBALT_API + opsional COBALT_KEY).
+// Instance publik umumnya butuh auth — jalankan instance sendiri untuk memakai ini.
+const COBALT_API = (process.env.COBALT_API || '').replace(/\/$/, '');
+const COBALT_KEY = process.env.COBALT_KEY || '';
+export async function fetchCobalt(url) {
+  if (!COBALT_API) return null;
+  try {
+    const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+    if (COBALT_KEY) headers.Authorization = `Api-Key ${COBALT_KEY}`;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 30000);
+    const r = await fetch(COBALT_API, {
+      method: 'POST', headers, signal: ctrl.signal,
+      body: JSON.stringify({ url, videoQuality: '1080', audioFormat: 'mp3', filenameStyle: 'pretty' }),
+    });
+    clearTimeout(t);
+    const j = await r.json();
+    const video = [], audio = [], image = [];
+    if (j.status === 'tunnel' && j.url) {
+      const name = String(j.filename || j.url).toLowerCase();
+      const isAudio = /\.(mp3|m4a|ogg|wav|opus|weba|flac)(\?|$)/.test(name);
+      const m = name.match(/\.([a-z0-9]{2,4})(\?|$)/);
+      (isAudio ? audio : video).push({
+        type: isAudio ? 'audio' : 'video', url: j.url, quality: 'Via Cobalt',
+        extension: (m && m[1]) || (isAudio ? 'mp3' : 'mp4'),
+        filesize: null, filesize_label: 'Unknown', thumbnail: null, has_audio: true,
+      });
+    } else if (j.status === 'picker' && Array.isArray(j.picker)) {
+      j.picker.slice(0, 10).forEach((p, i) => {
+        if (!p?.url) return;
+        if (p.type === 'photo') {
+          image.push({ type: 'image', url: p.url, quality: `Foto ${i + 1}`, extension: 'jpg', filesize: null, filesize_label: 'Unknown', thumbnail: p.url, has_audio: false });
+        } else {
+          video.push({ type: 'video', url: p.url, quality: 'Via Cobalt', extension: 'mp4', filesize: null, filesize_label: 'Unknown', thumbnail: p.thumb || null, has_audio: true });
+        }
+      });
+    } else {
+      return null;
+    }
+    if (!video.length && !audio.length && !image.length) return null;
+    return {
+      downloads: { video, audio, image, subtitles: [] },
+      info: {
+        title: j.filename || 'Hasil via Cobalt', thumbnail: image[0]?.url || video[0]?.thumbnail || null,
+        duration: null, duration_label: '-', uploader: null,
+        platform: platformFromUrl(url), webpage_url: url,
+      },
+    };
+  } catch { return null; }
+}
+
+export async function probeDuration(url) {
+  return new Promise((resolve) => {
+    const child = spawn(YTDLP_BIN, [...baseArgs(), '--no-playlist', '--skip-download', '--print', '%(duration)s', url], { timeout: 30000 });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => {
+      if (code !== 0) return resolve(null);
+      const n = parseFloat(String(out).trim().split('\n')[0]);
+      resolve(Number.isFinite(n) ? n : null);
+    });
+  });
+}
+
+/* ---------- Job engine: MP3 / HD-merge / trim dengan progress ---------- */
+const jobs = new Map();
+const MAX_JOBS = 2;
+let runningCount = 0;
+const jobQueue = [];
+export function jobsActiveCount() { return runningCount + jobQueue.length; }
+const DUR_CAP = { merge: 1800, trim: 1800, mp3: 3600 }; // detik
+
+function pruneJobs() {
+  if (jobs.size < 200) return;
+  const now = Date.now();
+  for (const [id, j] of jobs) {
+    if (['done', 'error', 'cancelled'].includes(j.status) && now - j.createdAt > 60 * 60 * 1000) {
+      jobs.delete(id);
+      cleanupJobFiles(id);
+    }
+  }
+}
+async function cleanupJobFiles(id) {
+  try {
+    for (const f of await fsp.readdir(TMP_DIR)) {
+      if (f.startsWith(id)) await fsp.unlink(path.join(TMP_DIR, f)).catch(() => {});
+    }
+  } catch {}
+}
+
+export async function createJob({ kind, url, height, start, end, filename }) {
+  if (!['mp3', 'merge', 'trim'].includes(kind)) return { ok: false, status: 400, error: 'Jenis job tidak dikenal.' };
+  if (!HAS_FFMPEG) return { ok: false, status: 501, error: 'Fitur konversi butuh ffmpeg yang tidak tersedia di server ini.' };
+  const v = validateTargetUrl(url);
+  if (!v.ok) return { ok: false, status: 400, error: v.error };
+  const h = [360, 480, 720, 1080].includes(+height) ? +height : 720;
+  const s = +start || 0, e = +end || 0;
+  if (kind === 'trim') {
+    if (!(s >= 0 && e > s)) return { ok: false, status: 400, error: 'Waktu trim tidak valid (butuh 0 <= mulai < selesai).' };
+    if (e - s > 600) return { ok: false, status: 400, error: 'Hasil trim maksimal 10 menit.' };
+  }
+  const dur = await probeDuration(v.url);
+  if (dur && dur > (DUR_CAP[kind] || 1800)) {
+    return { ok: false, status: 400, error: `Video ${humanDuration(dur)} melebihi batas ${humanDuration(DUR_CAP[kind])} untuk ${kind === 'mp3' ? 'MP3' : kind === 'trim' ? 'trim' : 'HD'}.` };
+  }
+  pruneJobs();
+  const id = crypto.randomBytes(16).toString('hex');
+  const job = {
+    id, kind, url: v.url, height: h, start: s, end: e,
+    filename: sanitizeFilename(filename, kind === 'mp3' ? 'audio' : 'video'),
+    status: 'queued', progress: 0, phase: 'Antre...', speed: '-', eta: '-',
+    createdAt: Date.now(), error: null, file: null, child: null,
+  };
+  jobs.set(id, job);
+  jobQueue.push(id);
+  stats.jobs.created++;
+  pumpQueue();
+  return { ok: true, jobId: id };
+}
+
+export function getJob(id) {
+  const j = jobs.get(String(id || ''));
+  if (!j) return null;
+  return {
+    id: j.id, kind: j.kind, status: j.status, progress: Math.round(j.progress),
+    phase: j.phase, speed: j.speed, eta: j.eta, error: j.error,
+    file: j.file ? { size: j.file.size, size_label: humanSize(j.file.size), filename: j.file.filename } : null,
+    fileUrl: j.status === 'done' ? `/api/file/${j.id}` : null,
+  };
+}
+
+export function cancelJob(id) {
+  const j = jobs.get(String(id || ''));
+  if (!j || ['done', 'error', 'cancelled'].includes(j.status)) return false;
+  const qi = jobQueue.indexOf(j.id);
+  if (qi >= 0) jobQueue.splice(qi, 1);
+  try { j.child?.kill('SIGKILL'); } catch {}
+  j.status = 'cancelled';
+  j.error = 'Dibatalkan pengguna.';
+  stats.jobs.cancelled++;
+  cleanupJobFiles(j.id);
+  return true;
+}
+
+function pumpQueue() {
+  while (runningCount < MAX_JOBS && jobQueue.length) {
+    const id = jobQueue.shift();
+    const j = jobs.get(id);
+    if (j && j.status === 'queued') runJob(j);
+  }
+}
+
+function parseProgress(j, line, scale = 1, base = 0) {
+  const m = String(line).match(/\[download\]\s+([\d.]+)%.*?at\s+(\S+).*?ETA\s+(\S+)/);
+  if (m) {
+    j.progress = Math.min(99, base + parseFloat(m[1]) * scale);
+    j.speed = m[2];
+    j.eta = m[3];
+    if (!j.phase || j.phase === 'Antre...') j.phase = 'Mengunduh...';
+    return;
+  }
+  if (/\[Merger\]/.test(line)) { j.phase = 'Menggabungkan gambar+suara...'; j.progress = Math.max(j.progress, 96); }
+  if (/\[ExtractAudio\]/.test(line)) { j.phase = 'Konversi MP3...'; j.progress = Math.max(j.progress, 96); }
+  if (/\[download\] Destination/.test(line)) j.phase = 'Mengunduh...';
+}
+
+function finishJobFile(j, id, contentType, ext) {
+  return (async () => {
+    const files = (await fsp.readdir(TMP_DIR)).filter((f) => f.startsWith(`${id}__out`) && !f.endsWith('.part') && !f.endsWith('.ytdl'));
+    if (!files.length) throw new Error('empty');
+    const fp = path.join(TMP_DIR, files.sort((a, b) => b.length - a.length)[0]);
+    const st = await fsp.stat(fp);
+    if (!st.size) throw new Error('empty');
+    j.file = { path: fp, size: st.size, filename: `${j.filename}.${ext}`, contentType };
+  })();
+}
+
+async function runJob(j) {
+  j.status = 'working';
+  runningCount++;
+  const outTpl = path.join(TMP_DIR, `${j.id}__out.%(ext)s`);
+  try {
+    if (j.kind === 'trim') {
+      await runTrim(j, outTpl);
+    } else {
+      const args = j.kind === 'mp3'
+        ? ['-f', 'ba/b', '-x', '--audio-format', 'mp3', '--audio-quality', '192K']
+        : ['-f', `bv[height<=${j.height}][vcodec^=avc]+ba[acodec^=mp4a]/bv[height<=${j.height}]+ba/b[height<=${j.height}]/bv*+ba/b`, '--merge-output-format', 'mp4'];
+      await spawnYtDlp(j, [...args, '--ffmpeg-location', FFMPEG_BIN, '--no-playlist', '--no-warnings', '--no-cache-dir', '--progress', '--newline', '--socket-timeout', '20', '--retries', '2', '-o', outTpl, j.url], 1, 0);
+      await finishJobFile(j, j.id, j.kind === 'mp3' ? 'audio/mpeg' : 'video/mp4', j.kind === 'mp3' ? 'mp3' : 'mp4');
+    }
+    j.status = 'done';
+    j.progress = 100;
+    j.phase = 'Selesai';
+    stats.jobs.done++;
+  } catch (err) {
+    if (j.status === 'cancelled') { /* sudah ditangani */ }
+    else {
+      j.status = 'error';
+      j.error = jobFriendlyError(err?.stderr || err?.message || '');
+      stats.jobs.error++;
+      reportError(`job ${j.kind}`, new Error(j.error));
+      cleanupJobFiles(j.id);
+    }
+  } finally {
+    runningCount = Math.max(0, runningCount - 1);
+    pumpQueue();
+  }
+}
+
+function jobFriendlyError(stderr) {
+  const s = String(stderr || '');
+  if (/unsupported url/i.test(s)) return 'Link tidak didukung.';
+  if (/private|login|cookies/i.test(s)) return 'Konten private / butuh login.';
+  if (/not available|removed|deleted|not found|no video/i.test(s)) return 'Media tidak ditemukan / sudah dihapus.';
+  if (/timed out|timeout/i.test(s)) return 'Timeout saat mengunduh. Coba lagi.';
+  return 'Gagal memproses. Coba lagi atau pilih kualitas lain.';
+}
+
+function spawnYtDlp(j, args, scale, base, timeoutMs = 600000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(YTDLP_BIN, args, { timeout: timeoutMs });
+    j.child = child;
+    let stderr = '';
+    let buf = '';
+    child.stdout.on('data', (d) => {
+      buf += d;
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const ln of lines) parseProgress(j, ln, scale, base);
+    });
+    child.stderr.on('data', (d) => { stderr += d; if (stderr.length > 4000) stderr = stderr.slice(-4000); });
+    child.on('error', (err) => reject(Object.assign(new Error(err.message), { stderr })));
+    child.on('close', (code) => {
+      j.child = null;
+      if (j.status === 'cancelled') return reject(new Error('cancelled'));
+      if (code !== 0) return reject(Object.assign(new Error('yt-dlp failed'), { stderr }));
+      resolve();
+    });
+  });
+}
+
+async function runTrim(j, outTpl) {
+  const srcTpl = path.join(TMP_DIR, `${j.id}__src.%(ext)s`);
+  j.phase = 'Mengunduh video...';
+  await spawnYtDlp(j, ['-f', `bv[height<=720]+ba/b[height<=720]/b`, '--merge-output-format', 'mp4',
+    '--ffmpeg-location', FFMPEG_BIN, '--no-playlist', '--no-warnings', '--no-cache-dir',
+    '--progress', '--newline', '--socket-timeout', '20', '--retries', '2', '-o', srcTpl, j.url], 0.8, 0);
+  const srcs = (await fsp.readdir(TMP_DIR)).filter((f) => f.startsWith(`${j.id}__src`) && !f.endsWith('.part'));
+  if (!srcs.length) throw new Error('download empty');
+  const srcFp = path.join(TMP_DIR, srcs[0]);
+  j.phase = 'Memotong...';
+  j.progress = 85;
+  const outFp = path.join(TMP_DIR, `${j.id}__out.mp4`);
+  const segLen = Math.max(1, j.end - j.start);
+  // start=0 -> stream-copy (cepat & akurat); start>0 -> re-encode (copy memberi
+  // durasi salah karena keyframe sebelum titik potong ikut terbawa).
+  const ffArgs = j.start > 0
+    ? ['-y', '-ss', String(j.start), '-i', srcFp, '-t', String(segLen), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-movflags', '+faststart', outFp]
+    : ['-y', '-i', srcFp, '-t', String(segLen), '-c', 'copy', '-movflags', '+faststart', '-avoid_negative_ts', 'make_zero', outFp];
+  await new Promise((resolve, reject) => {
+    const ff = spawn(FFMPEG_BIN, ffArgs, { timeout: 600000 });
+    j.child = ff;
+    let err = '';
+    ff.stderr.on('data', (d) => { err += d; if (err.length > 2000) err = err.slice(-2000); });
+    ff.on('error', (e) => reject(e));
+    ff.on('close', (code) => {
+      j.child = null;
+      if (j.status === 'cancelled') return reject(new Error('cancelled'));
+      if (code !== 0) return reject(Object.assign(new Error('ffmpeg gagal memotong'), { stderr: err }));
+      resolve();
+    });
+  });
+  j.progress = 98;
+  await fsp.unlink(srcFp).catch(() => {});
+  await finishJobFile(j, j.id, 'video/mp4', 'mp4');
+}
+
+export async function serveJobFile(id, req, res) {
+  if (!(await apiRateLimit(req, res))) return;
+  const j = jobs.get(String(id || ''));
+  if (!j || j.status !== 'done' || !j.file) {
+    return res.status(404).json({ success: false, error: 'File tidak ditemukan / sudah kedaluwarsa. Buat ulang prosesnya.' });
+  }
+  const st = await fsp.stat(j.file.path).catch(() => null);
+  if (!st) {
+    return res.status(410).json({ success: false, error: 'File sudah dihapus server (kedaluwarsa). Buat ulang prosesnya.' });
+  }
+  res.setHeader('Content-Type', j.file.contentType);
+  res.setHeader('Content-Length', st.size);
+  res.setHeader('Content-Disposition', `attachment; filename="${j.file.filename}"; filename*=UTF-8''${encodeURIComponent(j.file.filename)}`);
+  const stream = createReadStream(j.file.path);
+  stream.on('error', () => { try { res.end(); } catch {} });
+  stream.pipe(res);
+}
+
+// Log error dari browser (ringan, dibatasi)
+export async function clientLog(req, res) {
+  if (!(await apiRateLimit(req, res, { max: 10 }))) return;
+  const b = req.body && typeof req.body === 'object' ? req.body : {};
+  stats.clientErrors.unshift({
+    t: Date.now(),
+    msg: String(b.msg || '').slice(0, 300),
+    url: String(b.url || '').slice(0, 200),
+  });
+  if (stats.clientErrors.length > 30) stats.clientErrors.pop();
+  res.json({ success: true });
+}
+
+export function envConfig() {
+  return {
+    umamiUrl: process.env.UMAMI_URL || null,
+    umamiId: process.env.UMAMI_WEBSITE_ID || null,
+    turnstileSite: process.env.TURNSTILE_SITE_KEY || null,
+    trim: HAS_FFMPEG, mp3: HAS_FFMPEG, merge: HAS_FFMPEG,
+    search: true, batch: true, maxBatch: 10,
+    cookies: HAS_COOKIES,
+    runtime: process.env.VERCEL ? 'vercel' : 'vps',
+  };
+}
+
+/* ============ Kebijakan akses: Turnstile CAPTCHA / API key (#1) ============
+   - Jika TURNSTILE_SECRET diset: endpoint berat wajib token captcha valid.
+   - Jika API_KEY diset: request dengan header x-api-key valid bisa lewatkan captcha;
+     kalau captcha mati, API key jadi wajib untuk endpoint berat.
+   - Token captcha yang sudah terverifikasi di-cache 10 menit (per IP) supaya
+     alur batch/polling tidak minta captcha berulang. */
+const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET || '';
+const API_KEY = process.env.API_KEY || '';
+const verifiedTokens = new Map(); // tokenHash -> { exp, ip }
+function tokenKey(tok, ip) { return crypto.createHash('sha256').update(String(tok) + '|' + String(ip || '')).digest('hex'); }
+export async function verifyTurnstile(token, ip) {
+  if (!TURNSTILE_SECRET) return { ok: true };
+  if (!token) return { ok: false, error: 'Verifikasi CAPTCHA wajib diselesaikan dulu.' };
+  const k = tokenKey(token, ip);
+  const hit = verifiedTokens.get(k);
+  if (hit && hit.exp > Date.now()) return { ok: true };
+  try {
+    const r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ secret: TURNSTILE_SECRET, response: String(token), remoteip: String(ip || '') }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (j.success) {
+      verifiedTokens.set(k, { exp: Date.now() + 600000, ip });
+      if (verifiedTokens.size > 2000) { const first = verifiedTokens.keys().next().value; verifiedTokens.delete(first); }
+      return { ok: true };
+    }
+    return { ok: false, error: 'Verifikasi CAPTCHA gagal. Muat ulang widget lalu coba lagi.' };
+  } catch {
+    return { ok: false, error: 'Verifikasi CAPTCHA gagal (jaringan). Coba lagi.' };
+  }
+}
+function reqIp(req) {
+  return (req.headers?.['x-forwarded-for'] || '').split(',')[0]?.trim() || req.socket?.remoteAddress || '';
+}
+export async function policyGuard(req, res) {
+  if (API_KEY) {
+    const k = req.headers?.['x-api-key'] || req.query?.key || req.body?.key;
+    if (k && k === API_KEY) return true;
+    if (!TURNSTILE_SECRET) { res.status(403).json({ success: false, error: 'Butuh API key (header x-api-key).' }); return false; }
+  }
+  if (TURNSTILE_SECRET) {
+    const tok = req.body?.['cf-turnstile-response'] || req.headers?.['x-turnstile-token'] || req.query?.token;
+    const v = await verifyTurnstile(tok, reqIp(req));
+    if (!v.ok) { res.status(403).json({ success: false, error: v.error }); return false; }
+  }
+  return true;
+}
+
+/* ============ Kesehatan cookies publik (ringan, tanpa bocor isi) ============ */
+export async function cookiesHealthHandler(req, res) {
+  if (!(await apiRateLimit(req, res, { max: 30 }))) return;
+  res.json({ success: true, ok: HAS_COOKIES, detail: HAS_COOKIES ? 'Cookies terpasang.' : 'Cookies belum dipasang di server.' });
+}
+
+// Cek kesehatan cookies IG dengan request live (khusus admin, agak lambat)
+export async function checkCookies() {
+  if (!HAS_COOKIES) return { ok: false, detail: 'Tidak ada file cookies.txt di server.' };
+  return new Promise((resolve) => {
+    const child = spawn(YTDLP_BIN, [...baseArgs(), '--no-playlist', '--skip-download', '--print', '%(id)s', 'https://www.instagram.com/reel/DdA4TuFJrbh/'], { timeout: 45000 });
+    let out = '', err = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('error', (e) => resolve({ ok: false, detail: String(e.message) }));
+    child.on('close', (code) => {
+      if (code === 0 && out.trim()) resolve({ ok: true, detail: 'Cookies valid (tes reel IG sukses).' });
+      else resolve({ ok: false, detail: `Tes gagal: ${err.split('\n').map((l) => l.replace(/^ERROR:\s*/i, '')).find((l) => l.trim()) || 'unknown'}`.slice(0, 250) });
+    });
+  });
+}
+
+export async function statsHandler(req, res) {
+  const key = req.query?.key || req.body?.key;
+  const admin = process.env.ADMIN_KEY || 'sann404-admin';
+  if (key !== admin) return res.status(403).json({ success: false, error: 'Kunci admin salah.' });
+  const out = { success: true, ...getStats() };
+  if (req.query?.action === 'cookies') out.cookiesCheck = await checkCookies();
+  res.json(out);
 }
 
 /* ================= Shared: proxy download, konversi, health ================= */
@@ -559,12 +1166,31 @@ export function tryStartJob(max = 2) {
 }
 export function endJob() { activeJobs = Math.max(0, activeJobs - 1); }
 
+/* ============ Auto-update yt-dlp (#5): maks 1x/24 jam, background ============ */
+let lastYtUpdate = 0, lastYtUpdateResult = 'belum pernah';
+export function maybeUpdateYtDlp(force = false) {
+  if (process.env.VERCEL || process.env.YTDLP_AUTO_UPDATE === '0') return false;
+  if (!force && Date.now() - lastYtUpdate < 86400000) return false;
+  lastYtUpdate = Date.now();
+  try {
+    const child = spawn(YTDLP_BIN, ['--update'], { timeout: 180000 });
+    let err = '';
+    child.stderr?.on('data', (d) => { err += d; });
+    child.on('error', (e) => { lastYtUpdateResult = `gagal: ${e.message}`; });
+    child.on('close', (code) => {
+      lastYtUpdateResult = code === 0 ? `sukses ${new Date().toISOString()}` : `exit ${code}: ${err.slice(0, 120)}`;
+    });
+  } catch (e) { lastYtUpdateResult = `gagal: ${e.message}`; return false; }
+  return true;
+}
+
 export function getHealth() {
   return new Promise((resolve) => {
     execFile(YTDLP_BIN, ['--version'], { timeout: 15000 }, (e1, v1) => {
       resolve({
         ok: !e1,
         ytdlp: e1 ? null : String(v1).trim(),
+        ytdlpUpdated: lastYtUpdateResult,
         ffmpeg: FFMPEG_VER,
         cookies: HAS_COOKIES,
         activeJobs,
@@ -577,8 +1203,10 @@ export function getHealth() {
 
 // Proxy download langsung (bebas CORS) — pakai fetch bawaan Node
 export async function proxyDownload(req, res) {
+  if (!(await apiRateLimit(req, res))) return;
+  const t0 = Date.now();
   const v = validateTargetUrl(req.query?.url);
-  if (!v.ok) return res.status(400).json({ success: false, error: v.error });
+  if (!v.ok) { logReq('download', 'cdn', false, Date.now() - t0, v.error); return res.status(400).json({ success: false, error: v.error }); }
 
   let filename = sanitizeFilename(req.query?.filename, 'download');
   if (!/\.\w{2,5}$/.test(filename)) {
@@ -612,6 +1240,7 @@ export async function proxyDownload(req, res) {
     const stream = Readable.fromWeb(up.body);
     stream.on('error', () => { try { res.end(); } catch {} });
     if (typeof req.on === 'function') req.on('close', () => { try { stream.destroy(); } catch {} });
+    logReq('download', 'cdn', true, Date.now() - t0);
     stream.pipe(res);
   } catch (e) {
     if (!res.headersSent) res.status(502).json({ success: false, error: 'Gagal mengambil file dari server sumber.' });
@@ -644,7 +1273,8 @@ async function cleanupJob(id) {
   } catch {}
 }
 
-export function convertToFile({ title, contentType, ext, ytdlpArgs, timeoutMs, req, res }) {
+export async function convertToFile({ title, contentType, ext, ytdlpArgs, timeoutMs, req, res }) {
+  if (!(await apiRateLimit(req, res))) return;
   if (!HAS_FFMPEG) {
     return res.status(501).json({ success: false, error: 'Fitur konversi butuh ffmpeg yang tidak tersedia di server ini. Deploy ke VPS/server penuh untuk MP3 & HD.' });
   }
@@ -712,12 +1342,20 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
 
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+  if (!(await apiRateLimit(req, res))) return;
+  if (!(await policyGuard(req, res))) return;
 
+  const t0 = Date.now();
   const body = req.body && typeof req.body === 'object' ? req.body : {};
   const url = body.url ?? req.query?.url;
 
   const result = await extractMedia(url);
-  if (!result.ok) return res.status(result.status || 500).json({ success: false, error: result.error });
+  if (!result.ok) {
+    logReq('extract', platformFromUrl(url), false, Date.now() - t0, result.error);
+    if ((result.status || 500) >= 500) reportError('extract 5xx', new Error(String(result.error).slice(0, 200)));
+    return res.status(result.status || 500).json({ success: false, error: result.error, hint: result.hint || null });
+  }
+  logReq('extract', result.info?.platform || '?', true, Date.now() - t0);
   return res.status(200).json({
     success: true,
     source: result.source,

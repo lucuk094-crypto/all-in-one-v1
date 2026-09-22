@@ -1,0 +1,5 @@
+node_modules
+.git
+cookies/*.txt
+cookies.txt
+*.log

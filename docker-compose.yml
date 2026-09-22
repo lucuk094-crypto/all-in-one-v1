@@ -1,0 +1,23 @@
+version: "3.9"
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      COOKIE_DIR: /app/cookies
+      # REDIS_URL: redis://redis:6379
+      # ADMIN_KEY: changeme
+      # COBALT_API: https://your-cobalt-instance
+      # COBALT_KEY: your-cobalt-api-key
+      # UMAMI_URL: https://analytics.example.com
+      # UMAMI_ID: your-website-id
+    volumes:
+      - ./cookies:/app/cookies:ro
+    restart: unless-stopped
+    # depends_on:
+    #   - redis
+  # redis:
+  #   image: redis:7-alpine
+  #   restart: unless-stopped

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kebijakan Privasi — MediaDownloader Ultra</title>
+<meta name="description" content="Kebijakan privasi MediaDownloader Ultra: data minimal, tanpa akun, tanpa pelacakan invasif.">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="navbar">
+  <div class="brand-box"><div class="brand-icon">///</div><div class="brand-text">LEGAL</div></div>
+  <div class="nav-actions">
+    <button id="langBtn" class="nav-btn small" onclick="setLang(getLang()==='id'?'en':'id')">🌐 ID</button>
+    <button id="themeBtn" class="nav-btn small" onclick="toggleTheme()">🌙</button>
+    <a href="index.html" class="nav-btn" data-i18n="l.back">← BERANDA</a>
+  </div>
+</nav>
+<div class="container docs-container">
+  <div class="cyber-header"><h1>KEBIJAKAN PRIVASI</h1><p>DATA MINIMAL • TANPA AKUN</p></div>
+  <div class="cyber-card"><div class="result-body legal">
+    <h3>1. Data yang kami proses</h3>
+    <p>URL yang Anda tempel dan file hasil konversi sementara (otomatis dihapus ≤10 menit). Riwayat unduhan tersimpan <strong>hanya di browser Anda</strong> (localStorage) — tidak dikirim ke server.</p>
+    <h3>2. Log teknis</h3>
+    <p>Server mencatat log teknis agregat (waktu, endpoint, platform, status sukses/gagal) untuk keamanan dan rate-limit. Tidak ada profil pengguna, tidak dijual ke pihak ketiga.</p>
+    <h3>3. Analitik opsional</h3>
+    <p>Jika admin mengaktifkan Umami (privacy-friendly, tanpa cookie pelacakan), kunjungan halaman dihitung anonim. Secara default analitik <strong>mati</strong>.</p>
+    <h3>4. Pihak ketiga</h3>
+    <p>Ekstraksi menghubungi platform sumber (TikTok, IG, YouTube, dll) dan CDN mereka; unduhan langsung bisa terekspos ke CDN tersebut sebagaimana Anda membukanya sendiri.</p>
+    <hr>
+    <p><em data-i18n="l.en_note"></em> <strong>EN summary:</strong> Minimal data: pasted URLs + temp conversion files (auto-deleted ≤10 min). History stays in your browser. Aggregate technical logs only. Analytics (Umami) is off by default.</p>
+  </div></div>
+  <footer class="sann-footer"><div class="footer-line"></div>
+    <p class="foot-links"><a href="index.html">Home</a> • <a href="tos.html" data-i18n="foot.tos">Syarat &amp; Ketentuan</a> • <a href="dmca.html" data-i18n="foot.dmca">DMCA</a></p>
+  </footer>
+</div>
+<script src="i18n.js"></script>
+</body>
+</html>

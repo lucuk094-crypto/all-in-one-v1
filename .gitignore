@@ -7,3 +7,4 @@ api/bin/
 *.mp4
 *.mp3
 !public/**/*.mp4
+.env

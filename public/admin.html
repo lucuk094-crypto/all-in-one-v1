@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Admin — MediaDownloader Ultra</title>
+<meta name="theme-color" content="#0a0a0a">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="navbar">
+  <div class="brand-box"><div class="brand-icon">///</div><div class="brand-text" data-i18n="a.title">ADMIN STATS</div></div>
+  <div class="nav-actions">
+    <button id="langBtn" class="nav-btn small" onclick="setLang(getLang()==='id'?'en':'id')">🌐 ID</button>
+    <button id="themeBtn" class="nav-btn small" onclick="toggleTheme()">🌙</button>
+    <a href="index.html" class="nav-btn" data-i18n="l.back">← BERANDA</a>
+  </div>
+</nav>
+<div class="container docs-container">
+  <div class="cyber-card"><div class="result-body">
+    <div class="input-row">
+      <input type="password" id="admKey" class="cyber-input" data-i18n-ph="a.key_ph" placeholder="Kunci admin...">
+      <button class="mini-btn" onclick="loadStats()" data-i18n="a.login">BUKA</button>
+      <button class="mini-btn" onclick="loadStats(true)" data-i18n="a.refresh">⟳ REFRESH</button>
+    </div>
+    <div style="margin-top:10px;"><button class="dl-btn" onclick="checkCookies()" data-i18n="a.cookies">CEK COOKIES</button></div>
+  </div></div>
+  <div id="admErr" class="cyber-card error-state hidden"><div class="error-body" id="admErrTxt"></div></div>
+  <div id="admBody"></div>
+</div>
+<script src="i18n.js"></script>
+<script>
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function loadStats(refresh){
+  var box=document.getElementById('admBody'), err=document.getElementById('admErr');
+  err.classList.add('hidden'); box.innerHTML='';
+  var key=document.getElementById('admKey').value;
+  if(!key){try{key=sessionStorage.getItem('admkey')||'';document.getElementById('admKey').value=key;}catch{}}
+  if(!key) return;
+  try{sessionStorage.setItem('admkey',key);}catch{}
+  try{
+    var r=await fetch('/api/stats?key='+encodeURIComponent(key));
+    var j=await r.json();
+    if(!r.ok||!j.success) throw new Error(j.error||t('a.wrong'));
+    var kv=function(o){return Object.keys(o||{}).map(function(k){return '<div class="opt-row"><span class="opt-meta">'+esc(k)+'</span><span class="q-badge">'+esc(o[k])+'</span></div>';}).join('')||'<div class="opt-meta">-</div>';};
+    var rows=function(arr,fmt){return (arr||[]).map(fmt).join('')||'<div class="opt-meta">-</div>';};
+    box.innerHTML=
+    '<div class="cyber-card result-card"><div class="result-header"><span>OVERVIEW</span><span class="result-badge">'+esc(j.runtime||'')+'</span></div><div class="result-body">'+
+      '<div class="opt-row"><span class="opt-meta">'+esc(t('a.total'))+'</span><span class="q-badge">'+j.total+'</span></div>'+
+      '<div class="opt-row"><span class="opt-meta">'+esc(t('a.ok'))+' / '+esc(t('a.err'))+'</span><span class="q-badge">'+j.ok+' / '+j.err+'</span></div>'+
+      '<div class="opt-row"><span class="opt-meta">'+esc(t('a.uptime'))+'</span><span class="q-badge">'+j.uptimeSec+'</span></div>'+
+      '<div class="opt-row"><span class="opt-meta">yt-dlp / redis</span><span class="q-badge">'+esc((j.ytdlp||'?'))+' / '+(j.redis?'ON':'OFF')+'</span></div>'+
+      '<div class="opt-row"><span class="opt-meta">'+esc(t('a.jobs'))+'</span><span class="q-badge">'+j.jobs.created+'/'+j.jobs.done+'/'+j.jobs.error+'/'+j.jobs.cancelled+'/'+j.jobsActive+'</span></div>'+
+    '</div></div>'+
+    '<div class="cyber-card result-card"><div class="result-header"><span>'+esc(t('a.byplat'))+'</span></div><div class="result-body">'+kv(j.byPlatform)+'</div></div>'+
+    '<div class="cyber-card result-card"><div class="result-header"><span>'+esc(t('a.byep'))+'</span></div><div class="result-body">'+kv(j.byEndpoint)+'</div></div>'+
+    '<div class="cyber-card result-card"><div class="result-header"><span>'+esc(t('a.recent'))+'</span></div><div class="result-body">'+rows(j.recent,function(x){return '<div class="opt-row"><span class="opt-meta">'+new Date(x.t).toLocaleTimeString()+' • '+esc(x.ep)+' • '+esc(x.p)+' • '+x.ms+'ms</span><span class="q-badge">'+(x.ok?'OK':'FAIL')+'</span></div>';})+'</div></div>'+
+    '<div class="cyber-card result-card"><div class="result-header"><span>'+esc(t('a.errors'))+'</span></div><div class="result-body">'+rows(j.errors,function(x){return '<div class="opt-row"><span class="opt-meta">'+new Date(x.t).toLocaleTimeString()+' • '+esc(x.ep)+' • '+esc(x.err)+'</span></div>';})+'</div></div>';
+  }catch(e){
+    document.getElementById('admErrTxt').textContent=e.message;
+    err.classList.remove('hidden');
+  }
+}
+async function checkCookies(){
+  var key=document.getElementById('admKey').value||(function(){try{return sessionStorage.getItem('admkey')||'';}catch{return '';}})();
+  if(!key) return;
+  var box=document.getElementById('admBody');
+  box.innerHTML='<div class="cyber-card"><div class="result-body"><p class="blink-text">CHECKING COOKIES...</p></div></div>';
+  try{
+    var r=await fetch('/api/stats?key='+encodeURIComponent(key)+'&action=cookies');
+    var j=await r.json();
+    var c=j.cookiesCheck||{};
+    box.innerHTML='<div class="cyber-card result-card"><div class="result-header"><span>COOKIES</span><span class="result-badge">'+(c.ok?'OK':'FAIL')+'</span></div><div class="result-body"><div class="opt-meta">'+esc(c.detail||'-')+'</div></div></div>';
+  }catch(e){
+    box.innerHTML='<div class="cyber-card error-state"><div class="error-body">'+esc(e.message)+'</div></div>';
+  }
+}
+document.addEventListener('DOMContentLoaded',function(){
+  try{var k=sessionStorage.getItem('admkey');if(k){document.getElementById('admKey').value=k;loadStats();}}catch{}
+  document.getElementById('admKey').addEventListener('keydown',function(e){if(e.key==='Enter')loadStats();});
+});
+</script>
+</body>
+</html>

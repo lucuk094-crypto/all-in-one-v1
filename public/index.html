@@ -3,7 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MEDIA DOWNLOADER ULTRA</title>
+    <title>MediaDownloader Ultra — Download Video, MP3, Reels, Story Semua Sosmed</title>
+    <meta name="description" content="All-in-One Downloader gratis: TikTok tanpa watermark, Instagram Reels & Story, YouTube & Shorts, Facebook, X/Twitter, MP3 192kbps, HD 1080p, subtitle, batch & playlist.">
+    <meta name="keywords" content="tiktok downloader, instagram downloader, youtube downloader, mp3, reels, story saver, no watermark">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#0a0a0a">
+    <link rel="canonical" href="/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="MediaDownloader Ultra — All-in-One Downloader">
+    <meta property="og:description" content="Download video, MP3, foto, Reels & Story dari semua sosmed. Gratis, tanpa watermark.">
+    <meta property="og:image" content="/icons/icon-512.png">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="MediaDownloader Ultra">
+    <meta name="twitter:description" content="All-in-One Downloader: TikTok, IG, YouTube, FB, X + MP3 + HD + subtitle.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <script type="application/ld+json">
+    {"@context":"https://schema.org","@type":"WebApplication","name":"MediaDownloader Ultra","applicationCategory":"MultimediaApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0"},"description":"All-in-One media downloader for TikTok, Instagram, YouTube, Facebook, X and 1000+ sites."}
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;800&family=Space+Grotesk:wght@300;700;900&display=swap" rel="stylesheet">
@@ -16,21 +34,24 @@
     <div class="floating-shape shape-2"></div>
 
     <div class="marquee-top">
-        <div class="marquee-content">
-            SYSTEM READY • V.3.0 ULTRA • NO WATERMARK • FAST SPEED • SECURE • SANN404 • SYSTEM READY • V.3.0 ULTRA • NO WATERMARK •
-        </div>
+        <div class="marquee-content" data-i18n="marquee">SYSTEM READY • V.4.0 ULTRA • NO WATERMARK • MP3 • HD 1080P • SUBTITLE • BATCH • SANN404 • </div>
     </div>
 
     <nav class="navbar">
         <div class="brand-container">
             <div class="brand-glitch" data-text="MD-ULTRA">MediaDownloader</div>
         </div>
-       
-        <a href="docs.html" class="nav-btn">BACA YA INI</a>
+        <div class="nav-actions">
+            <button id="installBtn" class="nav-btn small hidden" data-i18n="nav.install">INSTALL APP</button>
+            <button id="langBtn" class="nav-btn small" onclick="setLang(getLang()==='id'?'en':'id')">🌐 ID</button>
+            <button id="themeBtn" class="nav-btn small" onclick="toggleTheme()">🌙</button>
+            <a href="docs.html" class="nav-btn" data-i18n="nav.docs">BACA YA INI</a>
+        </div>
     </nav>
 
     <div class="container">
-        
+        <h1 class="sr-only">MediaDownloader Ultra — All-in-One Downloader TikTok, Instagram, YouTube, Facebook, X</h1>
+
         <div class="cyber-card main-card">
             <div class="screw top-left">+</div>
             <div class="screw top-right">+</div>
@@ -41,39 +62,59 @@
                 <div class="profile-section">
                     <img src="63985eb0b043dbf2bcdc175f50acb386.jpg" alt="User Profile" class="avatar-img" id="userAvatar">
                     <div class="profile-info">
-                        <span class="user-role">ADMINISTRATOR</span>
-                        <span class="user-action">PASTE YOUR LINK BELOW</span>
+                        <span class="user-role" data-i18n="hero.role">ADMINISTRATOR</span>
+                        <span class="user-action" data-i18n="hero.action">PASTE YOUR LINK BELOW</span>
                     </div>
                 </div>
                 <div class="decor-lines">///</div>
             </div>
-            
+
             <div class="card-body">
                 <div class="input-wrapper">
-                    <div class="input-label">TARGET URL:</div>
-                    <input type="text" id="urlInput" class="cyber-input" placeholder="https://tiktok.com/..." autocomplete="off">
+                    <div class="input-label"><span data-i18n="form.url">TARGET URL:</span> <span id="platBadge" class="plat-badge hidden"></span></div>
+                    <div class="input-row">
+                        <input type="text" id="urlInput" class="cyber-input" data-i18n-ph="form.ph" placeholder="https://tiktok.com/..." autocomplete="off">
+                        <button id="pasteBtn" class="mini-btn" onclick="pasteClipboard()" data-i18n="form.paste">📋 TEMPEL</button>
+                    </div>
                     <div class="input-focus-border"></div>
                 </div>
 
                 <div class="platform-tags">
-                    <span>#TIKTOK</span> <span>#IG</span> <span>#YT</span> <span>#FB</span> <span>#X</span>
+                    <span>#TIKTOK</span> <span>#IG-REELS</span> <span>#IG-STORY</span> <span>#YT</span> <span>#SHORTS</span> <span>#FB</span> <span>#FB-REELS</span> <span>#X</span> <span>#MP3</span> <span>#SUBTITLE</span>
                 </div>
-                
+
                 <button id="downloadBtn" onclick="fetchMedia()" class="cyber-button">
-                    <span class="btn-text">INITIATE DOWNLOAD</span>
+                    <span class="btn-text" data-i18n="form.go">INITIATE DOWNLOAD</span>
                     <span class="btn-glare"></span>
                 </button>
+
+                <button id="batchToggle" class="toggle-link" onclick="toggleBatch()" data-i18n="form.batch">📦 MODE BATCH (banyak link)</button>
+                <div id="batchBox" class="hidden">
+                    <textarea id="batchInput" rows="4" data-i18n-ph="form.batch_ph" placeholder="Satu link per baris (maks 10)..."></textarea>
+                    <button onclick="fetchBatch()" class="cyber-button small-btn"><span data-i18n="form.batch_go">PROSES SEMUA</span></button>
+                </div>
+            </div>
+        </div>
+
+        <div class="cyber-card">
+            <div class="card-body search-body">
+                <div class="input-label" style="margin-bottom:8px;">🔍 YOUTUBE SEARCH</div>
+                <div class="input-row">
+                    <input type="text" id="searchInput" class="cyber-input" data-i18n-ph="form.search_ph" placeholder="Cari video YouTube...">
+                    <button onclick="doSearch()" class="mini-btn" data-i18n="form.search">🔍 CARI</button>
+                </div>
             </div>
         </div>
 
         <div id="loading" class="cyber-card hidden" style="text-align: center; padding: 40px;">
             <div class="scanner"></div>
-            <p class="blink-text">PROCESSING DATA STREAM...</p>
+            <p class="blink-text" data-i18n="loading">PROCESSING DATA STREAM...</p>
         </div>
 
         <div id="error-msg" class="cyber-card error-state hidden">
-            <div class="error-header">SYSTEM ERROR</div>
+            <div class="error-header" data-i18n="err.title">SYSTEM ERROR</div>
             <div class="error-body" id="error-text"></div>
+            <div class="error-body hidden" id="error-hint" style="border-top:2px dashed #fff;"></div>
         </div>
 
         <div id="result" class="result-stack"></div>
@@ -82,12 +123,55 @@
 
         <footer class="sann-footer">
             <div class="footer-line"></div>
-            <p>POWERED BY <span class="sann-highlight">SANN404 FORUM</span></p>
-            <p style="font-size: 0.7rem; opacity: 0.6;">ENGINEERED FOR PERFORMANCE</p>
+            <p><span data-i18n="foot.powered">POWERED BY</span> <span class="sann-highlight">SANN404 FORUM</span></p>
+            <p class="foot-links">
+                <a href="tos.html" data-i18n="foot.tos">Syarat &amp; Ketentuan</a> •
+                <a href="privacy.html" data-i18n="foot.privacy">Privasi</a> •
+                <a href="dmca.html" data-i18n="foot.dmca">DMCA</a> •
+                <a href="docs.html">Docs</a> <a href="admin.html" class="admin-dot" title="admin">•</a>
+            </p>
+            <p style="font-size: 0.7rem; opacity: 0.6;" data-i18n="foot.tag">ENGINEERED FOR PERFORMANCE</p>
         </footer>
 
     </div>
 
+    <div id="jobModal" class="modal hidden">
+        <div class="modal-box cyber-card">
+            <div class="result-header"><span data-i18n="job.title">PROSES SERVER</span><span class="result-badge" id="jobPct">0%</span></div>
+            <div class="result-body">
+                <div class="progress-track"><div class="progress-fill" id="jobFill"></div></div>
+                <div class="job-meta" id="jobMeta">...</div>
+                <a id="jobDl" class="dl-btn best hidden" href="#" style="width:100%;text-align:center;box-sizing:border-box;" data-i18n="job.done">SELESAI — DOWNLOAD SEKARANG</a>
+                <div class="modal-actions">
+                    <button id="jobCancel" class="dl-btn" data-i18n="job.cancel">BATALKAN</button>
+                    <button onclick="closeJobModal()" class="dl-btn" data-i18n="job.close">TUTUP</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="lightbox" class="modal hidden" onclick="if(event.target===this)closeLightbox()">
+        <div class="lb-box">
+            <img id="lbImg" src="" alt="preview">
+            <div class="lb-actions">
+                <button class="dl-btn" onclick="lbNav(-1)">◀</button>
+                <a id="lbDl" class="dl-btn best" href="#" data-i18n="lightbox.dl">⬇ DOWNLOAD INI</a>
+                <button class="dl-btn" onclick="lbNav(1)">▶</button>
+                <button class="dl-btn" onclick="closeLightbox()" data-i18n="lightbox.close">TUTUP ✕</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="/api/env.js"></script>
+    <script src="i18n.js"></script>
+    <script src="vendor/qrcode.min.js"></script>
     <script src="script.js"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+      }
+    </script>
 </body>
 </html>
