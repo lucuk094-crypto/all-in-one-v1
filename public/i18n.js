@@ -217,14 +217,19 @@ function applyI18n() {
   if (lb) lb.innerHTML = svgIcon('globe', 15) + '<span>' + (getLang() === 'id' ? 'ID' : 'EN') + '</span>';
 }
 
-// Tema terang/gelap
+// Tema gelap (default) / terang — atribut eksplisit agar konsisten di semua halaman
 function getTheme() {
   try { return localStorage.getItem('sann_theme') || 'dark'; } catch (e) { return 'dark'; }
 }
 function applyTheme() {
-  document.documentElement.dataset.theme = getTheme() === 'light' ? 'light' : '';
+  var th = getTheme() === 'light' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = th;
+  try {
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = th === 'light' ? '#e0e0e0' : '#0a0a0a';
+  } catch (e) {}
   var tb = document.getElementById('themeBtn');
-  if (tb) tb.innerHTML = svgIcon(getTheme() === 'light' ? 'sun' : 'moon', 16);
+  if (tb) tb.innerHTML = svgIcon(th === 'light' ? 'moon' : 'sun', 16);
 }
 function toggleTheme() {
   try { localStorage.setItem('sann_theme', getTheme() === 'light' ? 'dark' : 'light'); } catch (e) {}

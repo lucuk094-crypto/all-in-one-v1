@@ -7,6 +7,13 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<nav class="navbar">
+  <div class="brand-box"><div class="brand-icon">///</div><div class="brand-text">V313</div></div>
+  <div class="nav-actions">
+    <button id="langBtn" class="nav-btn small" onclick="setLang(getLang()==='id'?'en':'id')">ID</button>
+    <button id="themeBtn" class="nav-btn small" onclick="toggleTheme()">T</button>
+  </div>
+</nav>
 <div class="container" style="text-align:center; padding-top:80px;">
   <div class="cyber-card"><div class="result-header"><span data-i18n="o.title">OFFLINE</span></div>
   <div class="result-body"><p style="font-family:monospace;" data-i18n="o.msg"></p>

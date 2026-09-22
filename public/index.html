@@ -8,12 +8,14 @@
     <meta name="keywords" content="tiktok downloader, instagram downloader, youtube downloader, mp3, reels, story saver, no watermark, van313">
     <meta name="robots" content="index, follow">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="canonical" href="/">
+    <link rel="canonical" href="https://all-in-one-v1.vercel.app/">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Van313 Ultra">
     <meta property="og:title" content="Van313 Ultra — All-in-One Downloader">
     <meta property="og:description" content="Download video, MP3, foto, Reels & Story dari semua sosmed. Gratis, tanpa watermark.">
-    <meta property="og:image" content="/icons/icon-512.png">
+    <meta property="og:image" content="https://all-in-one-v1.vercel.app/icons/icon-512.png">
+    <meta property="og:image:alt" content="Van313 Ultra logo">
+    <meta property="og:url" content="https://all-in-one-v1.vercel.app/">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="Van313 Ultra">
     <meta name="twitter:description" content="All-in-One Downloader: TikTok, IG, YouTube, FB, X + MP3 + HD + subtitle.">
@@ -29,6 +31,12 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+    <div id="splash" onclick="hideSplash()" role="status" aria-label="Loading">
+        <img class="splash-logo" src="/icons/icon-512.png" alt="Van313 Ultra">
+        <div class="splash-brand">VAN313<small>ULTRA DOWNLOADER</small></div>
+        <div class="splash-bar"><i></i></div>
+    </div>
 
     <svg width="0" height="0" style="position:absolute" aria-hidden="true">
         <defs>
@@ -98,7 +106,7 @@
                 </div>
 
                 <div class="platform-tags">
-                    <span>TIKTOK</span><span>IG REELS</span><span>IG STORY</span><span>YOUTUBE</span><span>SHORTS</span><span>FACEBOOK</span><span>X</span><span>MP3</span><span>SUBTITLE</span>
+                    <span data-ex="https://www.tiktok.com/@zachking/video/7477980664416210222">TIKTOK</span><span data-ex="https://www.instagram.com/reel/DdA4TuFJrbh/">IG REELS</span><span data-ex="https://www.instagram.com/reel/DdA4TuFJrbh/">IG STORY</span><span data-ex="https://www.youtube.com/watch?v=dQw4w9WgXcQ">YOUTUBE</span><span data-ex="https://www.youtube.com/watch?v=dQw4w9WgXcQ">SHORTS</span><span data-ex="https://www.facebook.com/watch?v=1574708892866390">FACEBOOK</span><span data-ex="https://x.com/SpaceX/status/2101530724335559060">X</span><span data-ex="https://www.youtube.com/watch?v=dQw4w9WgXcQ">MP3</span><span data-ex="https://www.youtube.com/watch?v=dQw4w9WgXcQ">SUBTITLE</span>
                 </div>
 
                 <button id="downloadBtn" onclick="fetchMedia()" class="cyber-button">
@@ -125,9 +133,16 @@
             </div>
         </div>
 
-        <div id="loading" class="cyber-card hidden" style="text-align: center; padding: 40px;">
-            <div class="scanner"></div>
-            <p class="blink-text" data-i18n="loading">MEMPROSES...</p>
+        <div id="loading" class="cyber-card hidden">
+            <div class="card-body">
+                <div class="skel">
+                    <div class="skel-row skel-title"></div>
+                    <div class="skel-row skel-thumb"></div>
+                    <div class="skel-row skel-line"></div>
+                    <div class="skel-row skel-line"></div>
+                </div>
+                <p class="blink-text" style="text-align:center; margin-top:14px;" data-i18n="loading">MEMPROSES...</p>
+            </div>
         </div>
 
         <div id="error-msg" class="cyber-card error-state hidden">

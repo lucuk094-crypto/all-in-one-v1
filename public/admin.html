@@ -10,21 +10,21 @@
 </head>
 <body>
 <nav class="navbar">
-  <div class="brand-box"><div class="brand-icon">///</div><div class="brand-text" data-i18n="a.title">ADMIN STATS</div></div>
+  <div class="brand-box"><div class="brand-icon">///</div><div class="brand-text" data-i18n="a.title">ADMIN</div></div>
   <div class="nav-actions">
-    <button id="langBtn" class="nav-btn small" onclick="setLang(getLang()==='id'?'en':'id')"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><path d="M2 12h20"/></svg><span>ID</span></button>
-    <button id="themeBtn" class="nav-btn small" onclick="toggleTheme()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>
-    <a href="index.html" class="nav-btn" data-i18n="l.back">← BERANDA</a>
+    <button id="langBtn" class="nav-btn small" onclick="setLang(getLang()==='id'?'en':'id')">ID</button>
+    <button id="themeBtn" class="nav-btn small" onclick="toggleTheme()">T</button>
+    <a href="index.html" class="nav-btn" data-i18n="l.back">Beranda</a>
   </div>
 </nav>
 <div class="container docs-container">
-  <div class="cyber-card"><div class="result-body">
+  <div class="cyber-card"><div class="card-body">
     <div class="input-row">
       <input type="password" id="admKey" class="cyber-input" data-i18n-ph="a.key_ph" placeholder="Kunci admin...">
-      <button class="mini-btn" onclick="loadStats()" data-i18n="a.login">BUKA</button>
-      <button class="mini-btn" onclick="loadStats(true)" data-i18n="a.refresh">⟳ REFRESH</button>
+      <button class="mini-btn" onclick="loadStats()" data-i18n="a.login">Buka</button>
+      <button class="mini-btn alt" onclick="loadStats(true)" data-i18n="a.refresh">Refresh</button>
     </div>
-    <div style="margin-top:10px;"><button class="dl-btn" onclick="checkCookies()" data-i18n="a.cookies">CEK COOKIES</button></div>
+    <div style="margin-top:10px;"><button class="dl-btn" onclick="checkCookies()" data-i18n="a.cookies">Cek Cookies</button></div>
   </div></div>
   <div id="admErr" class="cyber-card error-state hidden"><div class="error-body" id="admErrTxt"></div></div>
   <div id="admBody"></div>
@@ -32,41 +32,52 @@
 <script src="i18n.js"></script>
 <script>
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-async function loadStats(refresh){
+function fmtUptime(sec){
+  sec = +sec || 0;
+  var d = Math.floor(sec/86400), h = Math.floor(sec%86400/3600), m = Math.floor(sec%3600/60), s = sec%60;
+  if (d) return d+'d '+h+'h';
+  if (h) return h+'h '+m+'m';
+  if (m) return m+'m '+s+'s';
+  return s+'s';
+}
+async function loadStats(){
   var box=document.getElementById('admBody'), err=document.getElementById('admErr');
   err.classList.add('hidden'); box.innerHTML='';
   var key=document.getElementById('admKey').value;
-  if(!key){try{key=sessionStorage.getItem('admkey')||'';document.getElementById('admKey').value=key;}catch{}}
+  if(!key){try{key=sessionStorage.getItem('admkey')||'';document.getElementById('admKey').value=key;}catch(e){}}
   if(!key) return;
-  try{sessionStorage.setItem('admkey',key);}catch{}
+  try{sessionStorage.setItem('admkey',key);}catch(e){}
+  box.innerHTML='<div class="cyber-card"><div class="card-body"><div class="skel"><div class="skel-row skel-line"></div><div class="skel-row skel-line"></div></div></div></div>';
   try{
     var r=await fetch('/api/stats?key='+encodeURIComponent(key));
     var j=await r.json();
     if(!r.ok||!j.success) throw new Error(j.error||t('a.wrong'));
     var kv=function(o){return Object.keys(o||{}).map(function(k){return '<div class="opt-row"><span class="opt-meta">'+esc(k)+'</span><span class="q-badge">'+esc(o[k])+'</span></div>';}).join('')||'<div class="opt-meta">-</div>';};
     var rows=function(arr,fmt){return (arr||[]).map(fmt).join('')||'<div class="opt-meta">-</div>';};
+    var okRate = j.total ? Math.round(100*j.ok/j.total)+'%' : '-';
     box.innerHTML=
-    '<div class="cyber-card result-card"><div class="result-header"><span>OVERVIEW</span><span class="result-badge">'+esc(j.runtime||'')+'</span></div><div class="result-body">'+
-      '<div class="opt-row"><span class="opt-meta">'+esc(t('a.total'))+'</span><span class="q-badge">'+j.total+'</span></div>'+
-      '<div class="opt-row"><span class="opt-meta">'+esc(t('a.ok'))+' / '+esc(t('a.err'))+'</span><span class="q-badge">'+j.ok+' / '+j.err+'</span></div>'+
-      '<div class="opt-row"><span class="opt-meta">'+esc(t('a.uptime'))+'</span><span class="q-badge">'+j.uptimeSec+'</span></div>'+
-      '<div class="opt-row"><span class="opt-meta">yt-dlp / redis</span><span class="q-badge">'+esc((j.ytdlp||'?'))+' / '+(j.redis?'ON':'OFF')+'</span></div>'+
-      '<div class="opt-row"><span class="opt-meta">'+esc(t('a.jobs'))+'</span><span class="q-badge">'+j.jobs.created+'/'+j.jobs.done+'/'+j.jobs.error+'/'+j.jobs.cancelled+'/'+j.jobsActive+'</span></div>'+
-    '</div></div>'+
-    '<div class="cyber-card result-card"><div class="result-header"><span>'+esc(t('a.byplat'))+'</span></div><div class="result-body">'+kv(j.byPlatform)+'</div></div>'+
-    '<div class="cyber-card result-card"><div class="result-header"><span>'+esc(t('a.byep'))+'</span></div><div class="result-body">'+kv(j.byEndpoint)+'</div></div>'+
-    '<div class="cyber-card result-card"><div class="result-header"><span>'+esc(t('a.recent'))+'</span></div><div class="result-body">'+rows(j.recent,function(x){return '<div class="opt-row"><span class="opt-meta">'+new Date(x.t).toLocaleTimeString()+' • '+esc(x.ep)+' • '+esc(x.p)+' • '+x.ms+'ms</span><span class="q-badge">'+(x.ok?'OK':'FAIL')+'</span></div>';})+'</div></div>'+
-    '<div class="cyber-card result-card"><div class="result-header"><span>'+esc(t('a.errors'))+'</span></div><div class="result-body">'+rows(j.errors,function(x){return '<div class="opt-row"><span class="opt-meta">'+new Date(x.t).toLocaleTimeString()+' • '+esc(x.ep)+' • '+esc(x.err)+'</span></div>';})+'</div></div>';
+    '<div class="stat-grid">'+
+      '<div class="stat-card"><div class="stat-num">'+j.total+'</div><div class="stat-lbl">'+esc(t('a.total'))+'</div></div>'+
+      '<div class="stat-card"><div class="stat-num">'+okRate+'</div><div class="stat-lbl">OK ('+j.ok+'/'+j.err+')</div></div>'+
+      '<div class="stat-card"><div class="stat-num">'+fmtUptime(j.uptimeSec)+'</div><div class="stat-lbl">UPTIME</div></div>'+
+      '<div class="stat-card"><div class="stat-num">'+j.jobsActive+'</div><div class="stat-lbl">JOBS AKTIF</div></div>'+
+    '</div>'+
+    '<div class="cyber-card result-card adm-sec"><div class="result-header"><span>'+esc(t('a.byplat'))+'</span><span class="result-badge">'+esc(j.runtime||'')+'</span></div><div class="result-body">'+kv(j.byPlatform)+'</div></div>'+
+    '<div class="cyber-card result-card adm-sec"><div class="result-header"><span>'+esc(t('a.byep'))+'</span></div><div class="result-body">'+kv(j.byEndpoint)+'</div></div>'+
+    '<div class="cyber-card result-card adm-sec"><div class="result-header"><span>'+esc(t('a.jobs'))+'</span></div><div class="result-body"><div class="opt-meta">buat '+j.jobs.created+' • selesai '+j.jobs.done+' • gagal '+j.jobs.error+' • batal '+j.jobs.cancelled+' • redis '+(j.redis?'ON':'OFF')+' • '+(j.ytdlp||'')+'</div></div></div>'+
+    '<div class="cyber-card result-card adm-sec"><div class="result-header"><span>'+esc(t('a.recent'))+'</span></div><div class="result-body">'+rows(j.recent,function(x){return '<div class="opt-row"><span class="opt-meta">'+new Date(x.t).toLocaleTimeString()+' • '+esc(x.ep)+' • '+esc(x.p)+' • '+x.ms+'ms</span><span class="q-badge">'+(x.ok?'OK':'FAIL')+'</span></div>';})+'</div></div>'+
+    '<div class="cyber-card result-card adm-sec"><div class="result-header"><span>'+esc(t('a.errors'))+'</span></div><div class="result-body">'+rows(j.errors,function(x){return '<div class="opt-row"><span class="opt-meta">'+new Date(x.t).toLocaleTimeString()+' • '+esc(x.ep)+' • '+esc(x.err)+'</span></div>';})+'</div></div>';
   }catch(e){
+    box.innerHTML='';
     document.getElementById('admErrTxt').textContent=e.message;
     err.classList.remove('hidden');
   }
 }
 async function checkCookies(){
-  var key=document.getElementById('admKey').value||(function(){try{return sessionStorage.getItem('admkey')||'';}catch{return '';}})();
+  var key=document.getElementById('admKey').value||(function(){try{return sessionStorage.getItem('admkey')||'';}catch(e){return '';}})();
   if(!key) return;
   var box=document.getElementById('admBody');
-  box.innerHTML='<div class="cyber-card"><div class="result-body"><p class="blink-text">CHECKING COOKIES...</p></div></div>';
+  box.innerHTML='<div class="cyber-card"><div class="card-body"><p class="blink-text">CHECKING...</p></div></div>';
   try{
     var r=await fetch('/api/stats?key='+encodeURIComponent(key)+'&action=cookies');
     var j=await r.json();
@@ -77,7 +88,7 @@ async function checkCookies(){
   }
 }
 document.addEventListener('DOMContentLoaded',function(){
-  try{var k=sessionStorage.getItem('admkey');if(k){document.getElementById('admKey').value=k;loadStats();}}catch{}
+  try{var k=sessionStorage.getItem('admkey');if(k){document.getElementById('admKey').value=k;loadStats();}}catch(e){}
   document.getElementById('admKey').addEventListener('keydown',function(e){if(e.key==='Enter')loadStats();});
 });
 </script>

@@ -518,10 +518,19 @@ async function doSearch() {
             if (!it.thumbnail) return;
             var row = card.querySelectorAll('.sr-row')[i];
             if (!row) return;
+            var wrap = document.createElement('div');
+            wrap.className = 'sr-thumb';
             var img = document.createElement('img');
             img.src = it.thumbnail; img.alt = ''; img.loading = 'lazy';
-            img.onerror = function () { img.remove(); };
-            row.insertBefore(img, row.firstChild);
+            img.onerror = function () { wrap.remove(); };
+            wrap.appendChild(img);
+            if (it.duration_label) {
+                var bd = document.createElement('span');
+                bd.className = 'sr-dur';
+                bd.textContent = it.duration_label;
+                wrap.appendChild(bd);
+            }
+            row.insertBefore(wrap, row.firstChild);
         });
     } catch (e) {
         logClient('search: ' + (e.message || e), q);
@@ -544,6 +553,15 @@ function showLb() {
 }
 function lbNav(n) { LB_INDEX += n; showLb(); }
 function closeLightbox() { var lb = $('lightbox'); if (lb) lb.classList.add('hidden'); }
+
+/* ---------- splash ---------- */
+var SPLASH_T0 = Date.now();
+function hideSplash() { var sp = $('splash'); if (sp) sp.classList.add('splash-hide'); }
+window.addEventListener('load', function () {
+    var wait = Math.max(0, 900 - (Date.now() - SPLASH_T0));
+    setTimeout(hideSplash, wait);
+});
+setTimeout(hideSplash, 3500); // pengaman
 
 /* ---------- PWA ---------- */
 var deferredPrompt = null;
@@ -572,6 +590,15 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     var si = $('searchInput');
     if (si) si.addEventListener('keydown', function (e) { if (e.key === 'Enter') doSearch(); });
+    Array.prototype.forEach.call(document.querySelectorAll('.platform-tags span[data-ex]'), function (tag) {
+        tag.addEventListener('click', function () {
+            var inp = $('urlInput');
+            if (!inp) return;
+            inp.value = tag.getAttribute('data-ex');
+            detectPlatform();
+            fetchMedia();
+        });
+    });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeLightbox(); });
 });
 window.addEventListener('error', function (ev) { logClient('window: ' + (ev.error && ev.error.message || ev.message || 'err')); });
