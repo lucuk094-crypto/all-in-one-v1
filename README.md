@@ -83,3 +83,25 @@ node server.js
 ```
 
 Semua fitur aktif termasuk MP3 & HD-merge.
+
+## Cookies Instagram/Facebook (wajib untuk Story, foto/carousel, akun ketat)
+
+Tanpa login, Instagram sering menolak request server (`No video formats found`,
+rate-limit 429, atau minta login) — terutama untuk **Story, foto/carousel, dan
+postingan akun tertentu**. Solusinya: pasang `cookies.txt` dari akun IG yang login.
+
+**Cara export (5 menit, cukup sekali):**
+1. Di **Chrome desktop**, login ke instagram.com seperti biasa.
+2. Install ekstensi **"Get cookies.txt LOCALLY"** (Chrome Web Store).
+3. Buka tab instagram.com → klik ikon ekstensi → **Export** → file `cookies.txt` terunduh.
+4. Taruh file itu di **folder project** (sejajar `server.js`), atau atur env `COOKIES_FILE`
+   / `COOKIE_DIR` ke lokasinya.
+5. Restart server (`node server.js`) / redeploy. Di Vercel: upload via env? Tidak —
+   Vercel read-only; gunakan VPS untuk fitur cookies, atau set `COOKIES_FILE` ke
+   file yang ikut ter-deploy (tidak disarankan untuk repo publik!).
+
+**Cek & rawat:**
+- Buka `/admin.html` → **Cek Cookies** (tes live reel IG).
+- Cookies kedaluwarsa tiap beberapa minggu/bulan → export ulang kalau error
+  login muncul lagi.
+- **Jangan commit `cookies.txt` ke Git** (sudah di `.gitignore`) — itu setara password.

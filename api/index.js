@@ -248,8 +248,14 @@ function isBlockedHost(hostname) {
   return false;
 }
 
+export function sanitizeInputUrl(raw) {
+  return String(raw || '')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#0*39;|&#x27;/gi, "'")
+    .replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, '').trim();
+}
+
 export function validateTargetUrl(raw) {
-  const str = String(raw || '').trim();
+  const str = sanitizeInputUrl(raw);
   if (!str) return { ok: false, error: 'URL tidak boleh kosong.' };
   if (str.length > 2048) return { ok: false, error: 'URL terlalu panjang.' };
   let u;
@@ -265,7 +271,11 @@ function friendlyYtDlpError(stderr) {
   if (/private|login required|log in to|cookies.*(required|expired)|not logged/i.test(s)) return { status: 403, error: 'Konten private / butuh login (sering terjadi di IG Story & akun dikunci). Coba link publik, atau pasang cookies.txt di server.', hint: HAS_COOKIES ? 'cookies_maybe_expired' : 'need_cookies' };
   if (/not available|removed|deleted|this .* (is private|has been removed)|not found|no video could be found|no media found/i.test(s)) return { status: 404, error: 'Media tidak ditemukan. Mungkin sudah dihapus, link salah, atau postingan teks tanpa media.' };
   if (/timed out|timeout|network is unreachable|temporary failure in name resolution/i.test(s)) return { status: 504, error: 'Koneksi ke server sumber timeout. Coba lagi sebentar.' };
-  if (/rate-limit|too many requests|429|not granting access/i.test(s)) return { status: 429, error: 'Platform sumber membatasi request (rate limit, sering dari IG). Tunggu ±1 menit lalu coba lagi.' };
+  if (/\[instagram\][\s\S]{0,400}no video formats found/i.test(s)) return { status: 403, error: 'Instagram menolak akses tanpa login (biasanya foto/carousel/story). Admin: pasang cookies.txt IG di server lalu coba lagi (panduan: README, cek: Admin → Cek Cookies).', hint: HAS_COOKIES ? 'cookies_maybe_expired' : 'need_cookies' };
+  if (/rate-limit|too many requests|429|not granting access/i.test(s)) {
+    const ig = /\[instagram\]/i.test(s);
+    return { status: 429, error: ig ? 'Instagram membatasi request dari server ini (rate limit / butuh login). Tunggu ±1 menit; jika sering terjadi, admin perlu pasang cookies.txt IG di server.' : 'Platform sumber membatasi request (rate limit, sering dari IG). Tunggu ±1 menit lalu coba lagi.', hint: ig ? (HAS_COOKIES ? 'cookies_maybe_expired' : 'need_cookies') : null };
+  }
   if (/ip.*block/i.test(s)) return { status: 502, error: 'IP server diblokir oleh platform sumber. Coba lagi nanti.' };
   if (/sign in to confirm|confirm your age|age-gated/i.test(s)) return { status: 403, error: 'Video dibatasi umur / butuh login, tidak bisa diambil.' };
   if (/premiere|upcoming|live.*(scheduled|upcoming)/i.test(s)) return { status: 400, error: 'Video belum tayang / masih premiere. Tunggu sampai rilis.' };
@@ -1351,6 +1361,10 @@ export default async function handler(req, res) {
 
   const result = await extractMedia(url);
   if (!result.ok) {
+    // IG 403/429 hampir selalu soal login: beri hint cookies meski pesannya generik
+    if (!result.hint && [403, 429].includes(result.status) && /instagram\.com/i.test(String(url || ''))) {
+      result.hint = HAS_COOKIES ? 'cookies_maybe_expired' : 'need_cookies';
+    }
     logReq('extract', platformFromUrl(url), false, Date.now() - t0, result.error);
     if ((result.status || 500) >= 500) reportError('extract 5xx', new Error(String(result.error).slice(0, 200)));
     return res.status(result.status || 500).json({ success: false, error: result.error, hint: result.hint || null });

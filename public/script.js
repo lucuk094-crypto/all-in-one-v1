@@ -192,11 +192,15 @@ async function doAnalyze(url) {
     }
     return j;
 }
+function cleanUrl(u) {
+    return String(u || '').replace(/&amp;/gi, '&').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, '').trim();
+}
 function validUrl(u) { return /^https?:\/\/[^\s"'<>]+$/i.test(u); }
 
 async function fetchMedia() {
     var inp = $('urlInput'); if (!inp) return;
-    var url = inp.value.trim();
+    var url = cleanUrl(inp.value);
+    inp.value = url;
     if (!url) { toast(t('e.empty')); return; }
     if (!validUrl(url)) { showError(t('e.badurl')); return; }
     if (needCaptcha()) return;
@@ -212,7 +216,7 @@ async function fetchMedia() {
         if (res && res.firstChild) res.firstChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } catch (e) {
         logClient('analyze: ' + (e.message || e), url);
-        var cookieish = e.hint === 'cookies' || /cookie|login|masuk/i.test(e.message || '');
+        var cookieish = /cookie/i.test(e.hint || '') || /cookie|login|masuk/i.test(e.message || '');
         showError(e.message || 'Error', cookieish ? 'e.cookies' : null);
     }
 }
@@ -222,7 +226,7 @@ function toggleBatch() {
 }
 async function fetchBatch() {
     var ta = $('batchInput'); if (!ta) return;
-    var urls = ta.value.split('\n').map(function (s) { return s.trim(); }).filter(validUrl);
+    var urls = ta.value.split('\n').map(function (s) { return cleanUrl(s); }).filter(validUrl);
     urls = urls.slice(0, SERVER.maxBatch || 10);
     if (!urls.length) { toast(t('e.empty')); return; }
     if (needCaptcha()) return;
