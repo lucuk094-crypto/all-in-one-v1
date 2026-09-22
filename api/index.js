@@ -1148,7 +1148,7 @@ export async function checkCookies() {
 
 export async function statsHandler(req, res) {
   const key = req.query?.key || req.body?.key;
-  const admin = process.env.ADMIN_KEY || 'sann404-admin';
+  const admin = process.env.ADMIN_KEY || 'van313-admin';
   if (key !== admin) return res.status(403).json({ success: false, error: 'Kunci admin salah.' });
   const out = { success: true, ...getStats() };
   if (req.query?.action === 'cookies') out.cookiesCheck = await checkCookies();

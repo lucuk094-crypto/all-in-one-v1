@@ -1,6 +1,5 @@
-/* MediaDownloader Ultra — frontend v5
-   Target: index.html (urlInput/downloadBtn/result/...), i18n.js (kunci form.* sec.* opt.* ...),
-   backend: POST /api/index, GET /api/search, POST /api/job, GET /api/job/:id, GET /api/file/:id */
+/* Van313 Ultra — frontend v6: ikon SVG, video player inline + pemilih kualitas, tanpa emoji.
+   Kontrak backend: POST /api/index, GET /api/search, POST /api/job, GET /api/job/:id, GET /api/file/:id */
 'use strict';
 
 var SERVER = { trim: true, mp3: true, merge: true, search: true, batch: true, maxBatch: 10, turnstileSite: null, umamiUrl: null, umamiId: null };
@@ -13,10 +12,11 @@ var BATCH_MODE = false;
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function isEN() { try { return getLang() === 'en'; } catch (e) { return false; } }
+function ic(name, size) { try { return svgIcon(name, size || 15); } catch (e) { return ''; } }
 function toast(msg) {
     var box = $('toast'); if (!box) return;
     box.textContent = msg; box.classList.remove('hidden');
-    clearTimeout(box._t); box._t = setTimeout(function () { box.classList.add('hidden'); }, 3500);
+    clearTimeout(box._t); box._t = setTimeout(function () { box.classList.add('hidden'); }, 3200);
 }
 function logClient(msg, url) {
     try {
@@ -45,7 +45,7 @@ function needCaptcha() {
     return false;
 }
 
-/* ---------- boot: config, captcha, umami, cookies, pwa, ?u= ---------- */
+/* ---------- boot ---------- */
 async function initServer() {
     try {
         var r = await fetch('/api/config', { cache: 'no-store' });
@@ -112,9 +112,10 @@ async function checkCookies() {
         if (j && j.success && !j.ok && document.querySelector('.container')) {
             var d = document.createElement('div');
             d.className = 'cookie-warn';
-            d.textContent = t('e.cookies') + ' ';
+            d.innerHTML = ic('alert', 16) + ' <span>' + esc(t('e.cookies')) + '</span> ';
             var b = document.createElement('button');
-            b.className = 'mini-btn plain'; b.textContent = '✕';
+            b.className = 'mini-btn plain'; b.innerHTML = ic('close', 14);
+            b.setAttribute('aria-label', 'close');
             b.onclick = function () { d.remove(); };
             d.appendChild(b);
             var c = document.querySelector('.container');
@@ -136,22 +137,22 @@ function renderHistory() {
     var h = getHistory();
     if (!h.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
     box.classList.remove('hidden');
-    var html = '<div class="sec-label">' + esc(t('hist.title')) + ' <a href="#" id="histClear" style="color:var(--accent-tertiary);">[' + esc(t('hist.clear')) + ']</a></div>';
+    var html = '<div class="sec-label">' + ic('history', 14) + ' ' + esc(t('hist.title')) + ' <a href="#" id="histClear">' + ic('trash', 13) + ' ' + esc(t('hist.clear')) + '</a></div>';
     h.forEach(function (x, i) {
-        html += '<div class="hist-row" data-hi="' + i + '"><span class="opt-meta" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(x.title || x.url) + '</span><span class="q-badge">' + esc(x.badge || '') + '</span></div>';
+        html += '<div class="hist-row" data-hi="' + i + '"><span class="opt-meta">' + esc(x.title || x.url) + '</span><span class="q-badge">' + esc(x.badge || '') + '</span></div>';
     });
     box.innerHTML = html;
     var c = $('histClear');
     if (c) c.onclick = function (e) { e.preventDefault(); try { localStorage.removeItem('dlHistory'); } catch (err) { } renderHistory(); };
     Array.prototype.forEach.call(box.querySelectorAll('.hist-row'), function (row) {
         row.onclick = function () {
-            var x = getHistory()[+row.getAttribute('data-h')];
+            var x = getHistory()[+row.getAttribute('data-hi')];
             if (x && $('urlInput')) { $('urlInput').value = x.url; fetchMedia(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
         };
     });
 }
 
-/* ---------- clipboard & toast copy ---------- */
+/* ---------- clipboard ---------- */
 async function pasteClipboard() {
     var inp = $('urlInput'); if (!inp) return;
     try {
@@ -176,12 +177,12 @@ function fallbackCopy(txt) {
 function detectPlatform() {
     var badge = $('platBadge'); if (!badge || !$('urlInput')) return;
     var u = $('urlInput').value.toLowerCase();
-    var p = u.indexOf('tiktok') >= 0 ? 'TIKTOK' : u.indexOf('instagram') >= 0 ? 'INSTAGRAM' : u.indexOf('youtu') >= 0 ? 'YOUTUBE' : u.indexOf('facebook') >= 0 || u.indexOf('fb.') >= 0 ? 'FACEBOOK' : u.indexOf('twitter') >= 0 || u.indexOf('x.com') >= 0 ? 'X/TWITTER' : '';
+    var p = u.indexOf('tiktok') >= 0 ? 'TIKTOK' : u.indexOf('instagram') >= 0 ? 'INSTAGRAM' : u.indexOf('youtu') >= 0 ? 'YOUTUBE' : u.indexOf('facebook') >= 0 || u.indexOf('fb.') >= 0 ? 'FACEBOOK' : u.indexOf('twitter') >= 0 || u.indexOf('x.com') >= 0 ? 'X' : '';
     badge.textContent = p;
     badge.classList.toggle('hidden', !p);
 }
 
-/* ---------- fetch utama ---------- */
+/* ---------- fetch ---------- */
 function setLoading(on) {
     var l = $('loading'); if (l) l.classList.toggle('hidden', !on);
     var b = $('downloadBtn'); if (b) b.disabled = !!on;
@@ -227,6 +228,7 @@ async function fetchMedia() {
         renderJson(j, url);
         saveHistory({ url: url, title: (j.info && j.info.title) || url, badge: (j.info && j.info.platform) || '' });
         renderHistory();
+        if (res && res.firstChild) res.firstChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } catch (e) {
         logClient('analyze: ' + (e.message || e), url);
         var cookieish = e.hint === 'cookies' || /cookie|login|masuk/i.test(e.message || '');
@@ -257,15 +259,15 @@ async function fetchBatch() {
             logClient('batch: ' + (e.message || e), urls[i]);
             if (res) {
                 var d = document.createElement('div');
-                d.className = 'cyber-card error-state';
-                d.innerHTML = '<div class="error-body">❌ ' + esc(urls[i]) + '<br>' + esc(e.message || 'Error') + '</div>';
+                d.className = 'cyber-card error-state anim-in';
+                d.innerHTML = '<div class="error-body">' + esc(urls[i]) + '<br>' + esc(e.message || 'Error') + '</div>';
                 res.appendChild(d);
             }
         }
     }
     setLoading(false);
     renderHistory();
-    toast(t('batch.count').replace('{n}', okCount + '/' + urls.length));
+    toast(okCount + '/' + urls.length + ' ' + t('batch.count'));
 }
 
 /* ---------- render hasil ---------- */
@@ -274,7 +276,8 @@ function proxied(item, title, kind) {
     return apiLink('/api/download', { url: item.url, filename: title, ext: ext });
 }
 function qrToggle(btn, url) {
-    var cell = btn.parentElement.parentElement.querySelector('.qr-cell');
+    var card = btn.closest('.result-card') || document;
+    var cell = btn.parentElement.parentElement.querySelector('.qr-cell') || card.querySelector('.qr-cell');
     if (!cell) return;
     if (!cell.classList.contains('hidden')) { cell.classList.add('hidden'); cell.innerHTML = ''; return; }
     cell.classList.remove('hidden');
@@ -284,23 +287,28 @@ function qrToggle(btn, url) {
         cell.innerHTML = qr.createImgTag(4, 8);
     } catch (e) { cell.textContent = 'QR error'; }
 }
+function shortQ(v) {
+    var q = String(v.quality || '');
+    var m = q.match(/(\d{3,4})p/);
+    if (m) return m[1] + 'p';
+    return q.split('•')[0].trim().slice(0, 14) || 'Video';
+}
 function renderJson(j, srcUrl, append) {
     var res = $('result'); if (!res) return;
     if (!append) res.innerHTML = '';
     var card = document.createElement('div');
-    card.className = 'cyber-card result-card';
+    card.className = 'cyber-card result-card anim-in';
     var info = j.info || {};
     var title = info.title || 'Media';
     var badge = info.platform || j.source || '';
-    var n = res.children.length;
 
     if (j.is_playlist || j.is_album) {
         var pl = j.playlist || {};
         var items = j.items || [];
-        var html = '<div class="result-header"><span>' + esc(t('sec.playlist')) + '</span><span class="result-badge">' + (pl.shown || items.length) + '/' + (pl.total || items.length) + ' ' + esc(t('pl.items')) + '</span></div>' +
-            '<div class="result-body"><div class="opt-meta" style="margin-bottom:8px;">' + esc(String(pl.title || title).slice(0, 80)) + '</div>' +
+        card.innerHTML =
+            '<div class="result-header"><span>' + ic('layers', 15) + ' ' + esc(t('sec.playlist')) + '</span><span class="result-badge">' + (pl.shown || items.length) + '/' + (pl.total || items.length) + ' ' + esc(t('pl.items')) + '</span></div>' +
+            '<div class="result-body"><div class="media-title">' + esc(String(pl.title || title).slice(0, 90)) + '</div>' +
             '<div class="sec-label">' + esc(t('pl.choose')) + '</div><div class="pl-list"></div></div>';
-        card.innerHTML = html;
         res.appendChild(card);
         var box = card.querySelector('.pl-list');
         items.forEach(function (it) {
@@ -308,7 +316,8 @@ function renderJson(j, srcUrl, append) {
             row.className = 'opt-row';
             row.innerHTML = '<span class="opt-meta">' + esc(String(it.title || '').slice(0, 70)) + (it.duration_label ? ' • ' + esc(it.duration_label) : '') + '</span>';
             var b = document.createElement('button');
-            b.className = 'mini-btn'; b.textContent = '▶ ' + t('pl.process');
+            b.className = 'mini-btn';
+            b.innerHTML = ic('zap', 13) + ' <span>' + esc(t('pl.process')) + '</span>';
             b.onclick = function () { if ($('urlInput')) $('urlInput').value = it.url; fetchMedia(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
             row.appendChild(b);
             box.appendChild(row);
@@ -318,77 +327,91 @@ function renderJson(j, srcUrl, append) {
 
     var dl = j.downloads || {};
     var videos = dl.video || [], audios = dl.audio || [], images = dl.image || [], subs = dl.subtitles || [];
-    var h = '<div class="result-header"><span>' + esc(String(title).slice(0, 60)) + '</span><span class="result-badge">' + esc(badge) + '</span></div><div class="result-body">';
-    if (info.thumbnail) h += '<div class="sec-label">' + esc(t('sec.preview')) + '</div><img src="' + esc(info.thumbnail) + '" class="result-thumb" alt="preview" data-thumb>';
+    var h = '<div class="result-header"><span class="rh-title">' + esc(String(title).slice(0, 70)) + '</span><span class="result-badge">' + esc(badge) + '</span></div><div class="result-body">';
     h += '<div class="result-meta-line">' +
-        (info.uploader ? '<span class="meta-chip">👤 ' + esc(String(info.uploader).slice(0, 30)) + '</span>' : '') +
-        (info.duration_label ? '<span class="meta-chip">⏱ ' + esc(info.duration_label) + '</span>' : '') +
-        (j.cached ? '<span class="meta-chip">⚡ cache</span>' : '') + '</div>';
+        (info.uploader ? '<span class="meta-chip">' + ic('user', 12) + ' ' + esc(String(info.uploader).slice(0, 28)) + '</span>' : '') +
+        (info.duration_label ? '<span class="meta-chip">' + ic('clock', 12) + ' ' + esc(info.duration_label) + '</span>' : '') +
+        (j.cached ? '<span class="meta-chip">' + ic('zap', 12) + ' cache</span>' : '') + '</div>';
 
+    /* Video: player inline + pemilih kualitas */
     if (videos.length) {
-        h += '<div class="sec-label">' + esc(t('sec.video')) + '</div>';
+        h += '<div class="sec-label">' + ic('film', 14) + ' ' + esc(t('sec.video')) + '</div>';
+        h += '<div class="vplayer"><video controls playsinline preload="metadata"' + (info.thumbnail ? ' poster="' + esc(info.thumbnail) + '"' : '') + ' src="' + esc(videos[0].url) + '"></video></div>';
+        h += '<div class="vq-row">';
         videos.forEach(function (v, i) {
-            var tag = v.has_audio === false ? ' • ' + esc(t('opt.noaudio')) : '';
-            h += '<div class="opt-row" data-vr="' + i + '"><span class="opt-meta">📹 ' + esc(v.quality || '') + ' • ' + esc(v.extension || 'mp4') + (v.filesize_label ? ' • ' + esc(v.filesize_label) : '') + tag + '</span>' +
-                '<span style="display:flex;gap:6px;flex-wrap:wrap;"><button class="mini-btn plain" data-act="play">' + esc(t('play.btn')) + '</button>' +
-                '<a class="dl-btn' + (i === 0 ? ' best' : '') + '" href="' + esc(proxied(v, title, 'video')) + '" download>' + esc(i === 0 ? t('opt.best') : t('opt.dl')) + '</a>' +
-                '<button class="mini-btn plain" data-act="copy">' + esc(t('copy.btn')) + '</button>' +
-                '<button class="mini-btn plain" data-act="qr">' + esc(t('qr.btn')) + '</button></span>' +
-                '<div class="qr-cell hidden" style="flex-basis:100%;"></div><div class="play-cell" style="flex-basis:100%;"></div></div>';
+            h += '<button class="vq-btn' + (i === 0 ? ' active' : '') + '" data-vq="' + i + '">' + esc(shortQ(v)) + (v.has_audio === false ? ' <em>' + esc(t('opt.noaudio')) + '</em>' : '') + '</button>';
+        });
+        h += '</div>';
+        videos.forEach(function (v, i) {
+            h += '<div class="opt-row" data-vr="' + i + '"><span class="opt-meta">' + esc(v.quality || shortQ(v)) + ' • ' + esc(v.extension || 'mp4') + (v.filesize_label ? ' • ' + esc(v.filesize_label) : '') + '</span>' +
+                '<span class="opt-actions"><a class="dl-btn' + (i === 0 ? ' best' : '') + '" href="' + esc(proxied(v, title, 'video')) + '" download>' + ic('download', 13) + ' ' + esc(i === 0 ? t('opt.best') : t('opt.dl')) + '</a>' +
+                '<button class="mini-btn plain" data-act="copy">' + ic('copy', 13) + '</button>' +
+                '<button class="mini-btn plain" data-act="qr">' + ic('qr', 13) + '</button></span>' +
+                '<div class="qr-cell hidden"></div></div>';
         });
     }
+    /* Audio */
     if (audios.length) {
-        h += '<div class="sec-label">' + esc(t('sec.audio')) + '</div>';
-        h += '<div class="audio-card"><div class="ac-title">▶ ' + esc(String(title).slice(0, 70)) + '</div><audio controls preload="none" src="' + esc(audios[0].url) + '"></audio></div>';
-        audios.forEach(function (a) {
-            h += '<div class="opt-row"><span class="opt-meta">🎵 ' + esc(a.quality || '') + ' • ' + esc(a.extension || 'mp3') + (a.filesize_label ? ' • ' + esc(a.filesize_label) : '') + '</span>' +
-                '<span style="display:flex;gap:6px;"><a class="dl-btn" href="' + esc(proxied(a, title, 'audio')) + '" download>' + esc(t('opt.dl')) + '</a>' +
-                '<button class="mini-btn plain" data-au="' + esc(a.url) + '">' + esc(t('copy.btn')) + '</button></span></div>';
+        h += '<div class="sec-label">' + ic('music', 14) + ' ' + esc(t('sec.audio')) + '</div>';
+        h += '<div class="audio-card"><div class="ac-title">' + esc(String(title).slice(0, 70)) + '</div><audio controls preload="none" src="' + esc(audios[0].url) + '"></audio></div>';
+        audios.forEach(function (a, i) {
+            h += '<div class="opt-row"><span class="opt-meta">' + esc(a.quality || '') + ' • ' + esc(a.extension || 'mp3') + (a.filesize_label ? ' • ' + esc(a.filesize_label) : '') + '</span>' +
+                '<span class="opt-actions"><a class="dl-btn' + (i === 0 ? ' best' : '') + '" href="' + esc(proxied(a, title, 'audio')) + '" download>' + ic('download', 13) + ' ' + esc(i === 0 ? t('opt.best') : t('opt.dl')) + '</a>' +
+                '<button class="mini-btn plain" data-au="' + esc(a.url) + '">' + ic('copy', 13) + '</button></span></div>';
         });
     }
+    /* Foto */
     if (images.length) {
-        h += '<div class="sec-label">' + esc(t('sec.img')) + '</div><div class="img-gallery">';
+        h += '<div class="sec-label">' + ic('image', 14) + ' ' + esc(t('sec.img')) + ' (' + images.length + ')</div><div class="img-gallery">';
         images.forEach(function (im, i) {
             h += '<img loading="lazy" src="' + esc(im.thumbnail || im.url) + '" alt="img" data-gi="' + i + '" onerror="this.style.display=\'none\'">';
         });
         h += '</div>';
         images.forEach(function (im, i) {
-            h += '<div class="opt-row"><span class="opt-meta">🖼️ ' + esc(im.quality || ('Foto ' + (i + 1))) + '</span>' +
-                '<a class="dl-btn" href="' + esc(proxied(im, title + '_' + (i + 1), 'image')) + '" download>' + esc(t('opt.save')) + '</a></div>';
+            h += '<div class="opt-row"><span class="opt-meta">' + esc(im.quality || ('Foto ' + (i + 1))) + '</span>' +
+                '<a class="dl-btn" href="' + esc(proxied(im, title + '_' + (i + 1), 'image')) + '" download>' + ic('download', 13) + ' ' + esc(t('opt.save')) + '</a></div>';
         });
     }
+    /* Subtitle */
     if (subs.length) {
-        h += '<div class="sec-label">' + esc(t('sec.sub')) + '</div><div class="sub-grid">';
+        h += '<div class="sec-label">' + ic('captions', 14) + ' ' + esc(t('sec.sub')) + '</div><div class="sub-grid">';
         subs.forEach(function (s) {
             var lbl = (s.lang || '?').toUpperCase() + ' • ' + (s.ext || 'vtt') + ' • ' + (s.auto ? t('sub.auto') : t('sub.manual'));
-            h += '<a class="sub-chip" href="' + esc(s.url) + '" download target="_blank" rel="noopener">💬 ' + esc(lbl) + '</a>';
+            h += '<a class="sub-chip" href="' + esc(s.url) + '" download target="_blank" rel="noopener">' + esc(lbl) + '</a>';
         });
         h += '</div>';
     }
-
+    /* Konversi */
     var canConvert = videos.length || audios.length;
     if (canConvert) {
         if (SERVER.mp3) {
-            h += '<div class="sec-label">🎧 MP3</div><div class="convert-row"><button class="mini-btn" data-job="mp3">' + esc(t('mp3.btn')) + '</button></div><div class="hint-text">' + esc(t('mp3.note')) + '</div>';
+            h += '<div class="sec-label">' + ic('music', 14) + ' MP3</div><div class="convert-row"><button class="mini-btn" data-job="mp3">' + ic('music', 13) + ' ' + esc(t('mp3.btn')) + '</button></div><div class="hint-text">' + esc(t('mp3.note')) + '</div>';
         } else if (SERVER.runtime === 'vercel') h += '<div class="hint-text">' + esc(t('mp3.noffmpeg')) + '</div>';
         if (SERVER.merge && videos.length) {
             var heights = info.merge_heights && info.merge_heights.length ? info.merge_heights : [720];
-            h += '<div class="sec-label">' + esc(t('sec.hd')) + '</div><div class="convert-row">';
-            heights.forEach(function (hh) { h += '<button class="mini-btn alt" data-job="merge" data-h="' + hh + '">🎬 HD ' + hh + 'p</button>'; });
+            h += '<div class="sec-label">' + ic('zap', 14) + ' ' + esc(t('sec.hd')) + '</div><div class="convert-row">';
+            heights.forEach(function (hh) { h += '<button class="mini-btn alt" data-job="merge" data-h="' + hh + '">' + ic('film', 13) + ' HD ' + hh + 'p</button>'; });
             h += '</div><div class="hint-text">' + esc(t('hd.note')) + '</div>';
         } else if (SERVER.runtime === 'vercel' && videos.length) h += '<div class="hint-text">' + esc(t('hd.noffmpeg')) + '</div>';
         if (SERVER.trim && videos.length) {
-            h += '<div class="sec-label">✂️ ' + esc(t('trim.title')) + '</div><div class="convert-row"><button class="mini-btn plain" data-job="trim">' + esc(t('trim.btn')) + '</button></div>' +
+            h += '<div class="sec-label">' + ic('scissors', 14) + ' ' + esc(t('trim.title')) + '</div><div class="convert-row"><button class="mini-btn plain" data-job="trim">' + ic('scissors', 13) + ' ' + esc(t('trim.btn')) + '</button></div>' +
                 '<div class="trim-extra hidden"><div class="trim-inputs"><span>' + esc(t('trim.start')) + '</span><input type="number" min="0" value="0" class="t-start"><span>' + esc(t('trim.end')) + '</span><input type="number" min="1" value="30" class="t-end"><button class="mini-btn" data-job="trimgo">' + esc(t('trim.go')) + '</button></div><div class="hint-text">' + esc(t('trim.max')) + '</div></div>';
         }
     }
     h += '</div>';
     card.innerHTML = h;
-    card.setAttribute('data-card', String(n));
     res.appendChild(card);
 
-    var th = card.querySelector('[data-thumb]');
-    if (th) th.onclick = function () { openLightbox([info.thumbnail], 0); };
+    /* quality switcher -> ganti src player */
+    var player = card.querySelector('.vplayer video');
+    Array.prototype.forEach.call(card.querySelectorAll('[data-vq]'), function (b) {
+        b.onclick = function () {
+            Array.prototype.forEach.call(card.querySelectorAll('[data-vq]'), function (x) { x.classList.remove('active'); });
+            b.classList.add('active');
+            var v = videos[+b.getAttribute('data-vq')];
+            if (player && v) { player.src = v.url; player.play().catch(function () { }); }
+        };
+    });
     Array.prototype.forEach.call(card.querySelectorAll('[data-gi]'), function (img) {
         img.style.cursor = 'zoom-in';
         img.onclick = function () { openLightbox(images.map(function (x) { return x.url; }), +img.getAttribute('data-gi')); };
@@ -396,18 +419,9 @@ function renderJson(j, srcUrl, append) {
     videos.forEach(function (v, i) {
         var row = card.querySelector('[data-vr="' + i + '"]');
         if (!row) return;
-        var btns = row.querySelectorAll('button');
-        Array.prototype.forEach.call(btns, function (b) {
+        Array.prototype.forEach.call(row.querySelectorAll('button'), function (b) {
             var act = b.getAttribute('data-act');
-            if (act === 'play') b.onclick = function () {
-                var cell = row.querySelector('.play-cell');
-                if (cell.innerHTML) { cell.innerHTML = ''; b.textContent = t('play.btn'); return; }
-                var vid = document.createElement('video');
-                vid.controls = true; vid.preload = 'metadata'; vid.src = v.url;
-                cell.appendChild(vid);
-                b.textContent = t('stop.btn');
-            };
-            else if (act === 'copy') b.onclick = function () { copyText(v.url); };
+            if (act === 'copy') b.onclick = function () { copyText(v.url); };
             else if (act === 'qr') b.onclick = function () { qrToggle(b, v.url); };
         });
     });
@@ -446,7 +460,7 @@ async function submitJob(kind, url, title, extra) {
         pollJob(j.jobId);
     } catch (e) {
         logClient('job-create: ' + (e.message || e), url);
-        $('jobMeta').textContent = '❌ ' + t('job.failed') + ': ' + (e.message || 'Error');
+        $('jobMeta').textContent = t('job.failed') + ': ' + (e.message || 'Error');
     }
 }
 async function pollJob(id) {
@@ -475,7 +489,7 @@ async function pollJob(id) {
             }
             if (state === 'error' || state === 'cancelled') {
                 delete ACTIVE_JOBS[id];
-                $('jobMeta').textContent = '❌ ' + (st.error || state);
+                $('jobMeta').textContent = (st.error || state);
                 return;
             }
         } catch (e) { /* retry */ }
@@ -503,10 +517,10 @@ async function doSearch() {
         if (!r.ok || !j.success) throw new Error(j.error || ('HTTP ' + r.status));
         if (!items.length) { showError(t('search.noresult')); return; }
         var card = document.createElement('div');
-        card.className = 'cyber-card result-card';
-        var h = '<div class="result-header"><span>' + esc(t('sec.search')) + '</span><span class="result-badge">' + items.length + '</span></div><div class="result-body">';
+        card.className = 'cyber-card result-card anim-in';
+        var h = '<div class="result-header"><span>' + ic('search', 15) + ' ' + esc(t('sec.search')) + '</span><span class="result-badge">' + items.length + '</span></div><div class="result-body">';
         items.forEach(function (it, i) {
-            h += '<div class="sr-row"><div class="sr-info"><div class="sr-title">' + esc(it.title || '') + '</div><div class="sr-meta">' + esc(it.channel || '') + (it.duration_label ? ' • ' + esc(it.duration_label) : '') + '</div></div><button class="sr-use" data-sr="' + i + '">⬇</button></div>';
+            h += '<div class="sr-row"><div class="sr-info"><div class="sr-title">' + esc(it.title || '') + '</div><div class="sr-meta">' + esc(it.channel || '') + (it.duration_label ? ' • ' + esc(it.duration_label) : '') + '</div></div><button class="sr-use" data-sr="' + i + '" aria-label="download">' + ic('download', 15) + '</button></div>';
         });
         h += '</div>';
         card.innerHTML = h;
