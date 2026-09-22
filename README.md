@@ -128,3 +128,32 @@ Selain yt-dlp, link IG/FB juga didukung API pihak ketiga
 | `NEXA_ENABLED` | `1` | Set `0` untuk mematikan jalur Nexa |
 | `NEXA_FIRST` | `0` | Set `1` untuk mencoba Nexa DULUAN utk link IG/FB |
 | `NEXA_API_BASE` | `https://api.nexadev.my.id` | Ganti base URL API bila perlu |
+
+## Operasional IG/FB full-support (VPS)
+
+Rantai ekstraksi untuk link IG/FB sekarang:
+`yt-dlp (+cookies, +rotasi) -> Nexa API (+retry 1x) -> Cobalt (jika diset)`.
+Foto/carousel publik dan Story publik (akun public, <24 jam) lolos via
+Nexa (terverifikasi); highlights dan konten ketat/private tetap butuh
+cookies login.
+
+**Multi-cookies + rotasi otomatis:**
+- Sumber dibaca saat boot (urutan): `COOKIES_FILE`, `COOKIE_DIR/*.txt`,
+  `cookies.txt`, `cookies2.txt` … `cookies5.txt` (folder project).
+- Kalau request gagal karena login/rate-limit di file ke-N, otomatis dicoba
+  dengan file berikutnya. Gunakan akun berbeda per file (akun tumbal!).
+- Upload/refresh tanpa SSH: buka `/admin.html` → Upload cookies.txt (slot 1–5),
+  lalu **Cek Cookies** untuk tes live per file. Tanpa restart server.
+
+**Proxy (lawan rate-limit IP datacenter):**
+- Set env `YTDLP_PROXY=http://user:pass@host:port` (format yt-dlp `--proxy`).
+  Berlaku untuk ekstrak, MP3/merge/trim job, dan konversi. Pakai proxy
+  residensial bila IG/FB sering 429.
+
+**Self-host Cobalt (fallback mandiri, gratis):**
+- Docker di VPS: `ghcr.io/imputnet/cobalt` (lihat panduan resmi di
+  https://github.com/imputnet/cobalt untuk env `API_URL` dsb.), misal ke
+  port 9000. Lalu set `COBALT_API=http://127.0.0.1:9000`
+  (+ `COBALT_KEY` bila instance diproteksi key).
+- Mendukung IG/FB/TikTok/X/dll. sebagai fallback terakhir milik sendiri,
+  tidak tergantung uptime API gratisan pihak ketiga.

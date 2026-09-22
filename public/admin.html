@@ -26,6 +26,17 @@
     </div>
     <div style="margin-top:10px;"><button class="dl-btn" onclick="checkCookies()" data-i18n="a.cookies">Cek Cookies</button></div>
   </div></div>
+  <div class="cyber-card"><div class="card-body">
+    <div class="opt-meta" data-i18n="a.up_t">Upload cookies.txt (VPS saja)</div>
+    <div class="input-row" style="margin-top:8px;">
+      <input type="file" id="ckFile" accept=".txt" class="cyber-input">
+      <select id="ckSlot" class="cyber-input" style="max-width:110px;">
+        <option value="1">Slot 1</option><option value="2">Slot 2</option><option value="3">Slot 3</option><option value="4">Slot 4</option><option value="5">Slot 5</option>
+      </select>
+      <button class="mini-btn" onclick="uploadCookies()" data-i18n="a.up_btn">Upload</button>
+    </div>
+    <div class="opt-meta" id="ckUpRes" style="margin-top:8px;"></div>
+  </div></div>
   <div id="admErr" class="cyber-card error-state hidden"><div class="error-body" id="admErrTxt"></div></div>
   <div id="admBody"></div>
 </div>
@@ -73,6 +84,20 @@ async function loadStats(){
     err.classList.remove('hidden');
   }
 }
+async function uploadCookies(){
+  var key=document.getElementById('admKey').value||(function(){try{return sessionStorage.getItem('admkey')||'';}catch(e){return '';}})();
+  var f=document.getElementById('ckFile').files[0];
+  var res=document.getElementById('ckUpRes');
+  if(!key){res.textContent='Isi kunci admin dulu.';return;}
+  if(!f){res.textContent='Pilih file cookies.txt dulu.';return;}
+  res.textContent='Mengupload...';
+  try{
+    var txt=await f.text();
+    var r=await fetch('/api/admin/cookies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,slot:document.getElementById('ckSlot').value,content:txt})});
+    var j=await r.json();
+    res.textContent=j.success?('OK: '+j.file+' ('+(j.files||[]).length+' file terpasang)'):('Gagal: '+(j.error||r.status));
+  }catch(e){res.textContent='Gagal: '+e.message;}
+}
 async function checkCookies(){
   var key=document.getElementById('admKey').value||(function(){try{return sessionStorage.getItem('admkey')||'';}catch(e){return '';}})();
   if(!key) return;
@@ -82,7 +107,8 @@ async function checkCookies(){
     var r=await fetch('/api/stats?key='+encodeURIComponent(key)+'&action=cookies');
     var j=await r.json();
     var c=j.cookiesCheck||{};
-    box.innerHTML='<div class="cyber-card result-card"><div class="result-header"><span>COOKIES</span><span class="result-badge">'+(c.ok?'OK':'FAIL')+'</span></div><div class="result-body"><div class="opt-meta">'+esc(c.detail||'-')+'</div></div></div>';
+    var files=(c.files||[]).map(function(f){return '<div class="opt-row"><span class="opt-meta">'+esc(f.file)+' — '+esc(f.detail||'')+'</span><span class="q-badge">'+(f.ok?'OK':'FAIL')+'</span></div>';}).join('');
+    box.innerHTML='<div class="cyber-card result-card"><div class="result-header"><span>COOKIES</span><span class="result-badge">'+(c.ok?'OK':'FAIL')+'</span></div><div class="result-body"><div class="opt-meta">'+esc(c.detail||'-')+'</div>'+files+'</div></div>';
   }catch(e){
     box.innerHTML='<div class="cyber-card error-state"><div class="error-body">'+esc(e.message)+'</div></div>';
   }

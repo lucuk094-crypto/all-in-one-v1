@@ -2,7 +2,7 @@
 // Mendukung: video multi-resolusi, audio, gambar, carousel/album, playlist,
 // MP3 & HD-merge (ditangani server.js), semua sosmed via yt-dlp.
 import { spawn, execFile, execFileSync } from 'child_process';
-import { existsSync, createReadStream } from 'fs';
+import { existsSync, createReadStream, readdirSync } from 'fs';
 import { promises as fsp } from 'fs';
 import { Readable } from 'stream';
 import os from 'os';
@@ -42,10 +42,39 @@ try { FFMPEG_VER = execFileSync(FFMPEG_BIN, ['-version'], { timeout: 8000 }).toS
 export const HAS_FFMPEG = !!FFMPEG_VER;
 
 // Cookies opsional (Netscape cookies.txt) — sangat membantu untuk IG/FB/X.
-// Cara buat: install ekstensi "Get cookies.txt LOCALLY", export saat login, simpan sebagai cookies.txt
-const COOKIES_FILE = process.env.COOKIES_FILE ||
-  (existsSync(path.join(__dirname, '..', 'cookies.txt')) ? path.join(__dirname, '..', 'cookies.txt') : null);
-export const HAS_COOKIES = !!COOKIES_FILE;
+// Sumber (urutan prioritas): COOKIES_FILE, COOKIE_DIR/*.txt, cookies.txt, cookies2..5.txt.
+// Multi-file = rotasi otomatis: gagal login/rate-limit di file ke-N -> coba file berikutnya.
+function resolveCookieFiles() {
+  const list = [];
+  const push = (p) => { if (p && existsSync(p) && !list.includes(p)) list.push(p); };
+  push(process.env.COOKIES_FILE);
+  try {
+    const dir = process.env.COOKIE_DIR;
+    if (dir && existsSync(dir)) {
+      for (const f of readdirSync(dir).filter((x) => /\.txt$/i.test(x)).sort()) push(path.join(dir, f));
+    }
+  } catch {}
+  const proj = (n) => path.join(__dirname, '..', n);
+  push(proj('cookies.txt'));
+  for (let i = 2; i <= 5; i++) push(proj(`cookies${i}.txt`));
+  return list;
+}
+const COOKIE_FILES = resolveCookieFiles();
+export let COOKIES_FILE = COOKIE_FILES[0] || null;
+export let HAS_COOKIES = !!COOKIES_FILE;
+export function cookiesStatus() {
+  return COOKIE_FILES.map((f) => ({ file: path.basename(f) }));
+}
+function refreshCookieFiles() {
+  COOKIE_FILES.length = 0;
+  COOKIE_FILES.push(...resolveCookieFiles());
+  COOKIES_FILE = COOKIE_FILES[0] || null;
+  HAS_COOKIES = !!COOKIES_FILE;
+}
+// Proxy opsional untuk yt-dlp (lawan rate-limit IP datacenter). Format: http://user:pass@host:port
+const YTDLP_PROXY = process.env.YTDLP_PROXY || '';
+function cookieArgs(idx = 0) { const f = COOKIE_FILES[idx]; return f ? ['--cookies', f] : []; }
+function proxyArgs() { return YTDLP_PROXY ? ['--proxy', YTDLP_PROXY] : []; }
 
 const YTDLP_TIMEOUT_MS = 60000;
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -276,6 +305,7 @@ function friendlyYtDlpError(stderr) {
     const ig = /\[instagram\]/i.test(s);
     return { status: 429, error: ig ? 'Instagram membatasi request dari server ini (rate limit / butuh login). Tunggu ±1 menit; jika sering terjadi, admin perlu pasang cookies.txt IG di server.' : 'Platform sumber membatasi request (rate limit, sering dari IG). Tunggu ±1 menit lalu coba lagi.', hint: ig ? (HAS_COOKIES ? 'cookies_maybe_expired' : 'need_cookies') : null };
   }
+  if (/empty media response/i.test(s)) return { status: 404, error: 'Instagram tidak mengembalikan media (postingan private / dihapus / ID salah). Coba link publik lain, atau pasang cookies.txt bila itu konten akun yang Anda follow.', hint: HAS_COOKIES ? 'cookies_maybe_expired' : 'need_cookies' };
   if (/ip.*block/i.test(s)) return { status: 502, error: 'IP server diblokir oleh platform sumber. Coba lagi nanti.' };
   if (/sign in to confirm|confirm your age|age-gated/i.test(s)) return { status: 403, error: 'Video dibatasi umur / butuh login, tidak bisa diambil.' };
   if (/premiere|upcoming|live.*(scheduled|upcoming)/i.test(s)) return { status: 400, error: 'Video belum tayang / masih premiere. Tunggu sampai rilis.' };
@@ -285,13 +315,11 @@ function friendlyYtDlpError(stderr) {
 
 /* ================= yt-dlp runner ================= */
 
-function baseArgs() {
-  const a = ['--no-warnings', '--no-cache-dir', '--socket-timeout', '20', '--retries', '2', '--fragment-retries', '2'];
-  if (COOKIES_FILE) a.push('--cookies', COOKIES_FILE);
-  return a;
+function baseArgs(idx = 0) {
+  return ['--no-warnings', '--no-cache-dir', '--socket-timeout', '20', '--retries', '2', '--fragment-retries', '2', ...cookieArgs(idx), ...proxyArgs()];
 }
 
-function runYtDlpJson(args, timeoutMs = YTDLP_TIMEOUT_MS) {
+function runYtDlpJson(args, timeoutMs = YTDLP_TIMEOUT_MS, cookiesIdx = 0) {
   return new Promise((resolve) => {
     const child = spawn(YTDLP_BIN, args, { timeout: timeoutMs });
     let stdout = '', stderr = '';
@@ -299,7 +327,18 @@ function runYtDlpJson(args, timeoutMs = YTDLP_TIMEOUT_MS) {
     child.stderr.on('data', (d) => { stderr += d; });
     child.on('error', (err) => resolve({ ok: false, status: 500, error: `yt-dlp tidak bisa dijalankan: ${err.message}` }));
     child.on('close', (code) => {
-      if (code !== 0) return resolve({ ok: false, ...friendlyYtDlpError(stderr), _retryable: /429|too many requests|timed out|timeout|not granting access/i.test(stderr) });
+      if (code !== 0) {
+        const fr = friendlyYtDlpError(stderr);
+        // Rotasi cookies: gagal karena login/rate-limit + masih ada file lain -> coba file berikut
+        if ((fr.hint === 'need_cookies' || fr.hint === 'cookies_maybe_expired') && cookiesIdx + 1 < COOKIE_FILES.length) {
+          const next = [...args];
+          const ci = next.indexOf('--cookies');
+          if (ci >= 0) next[ci + 1] = COOKIE_FILES[cookiesIdx + 1];
+          else next.push('--cookies', COOKIE_FILES[cookiesIdx + 1]);
+          return resolve(runYtDlpJson(next, timeoutMs, cookiesIdx + 1));
+        }
+        return resolve({ ok: false, ...fr, _retryable: /429|too many requests|timed out|timeout|not granting access/i.test(stderr) });
+      }
       try { resolve({ ok: true, info: JSON.parse(stdout) }); }
       catch { resolve({ ok: false, status: 500, error: 'Respon yt-dlp tidak valid.' }); }
     });
@@ -982,14 +1021,20 @@ export async function fetchNexa(url) {
   const isFB = !isIG && isFacebookUrl(url);
   if (!isIG && !isFB) return null;
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 45000);
-    const res = await fetch(`${NEXA_API_BASE}${isIG ? '/api/ig?url=' : '/api/fb?url='}${encodeURIComponent(url)}`, {
-      signal: ctrl.signal, redirect: 'follow',
-      headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json' },
-    });
-    clearTimeout(t);
-    const j = await res.json().catch(() => null);
+    let j = null;
+    for (let attempt = 0; attempt < 2 && !j; attempt++) {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 45000);
+      try {
+        const res = await fetch(`${NEXA_API_BASE}${isIG ? '/api/ig?url=' : '/api/fb?url='}${encodeURIComponent(url)}`, {
+          signal: ctrl.signal, redirect: 'follow',
+          headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json' },
+        });
+        clearTimeout(t);
+        j = await res.json().catch(() => null);
+      } catch { clearTimeout(t); }
+      if (!j && attempt === 0) await sleep(2000);
+    }
     if (!j || j.status !== true || !Array.isArray(j.data) || !j.data.length) return null;
     const items = [];
     const seen = new Set();
@@ -1166,7 +1211,7 @@ async function runJob(j) {
       const args = j.kind === 'mp3'
         ? ['-f', 'ba/b', '-x', '--audio-format', 'mp3', '--audio-quality', '192K']
         : ['-f', `bv[height<=${j.height}][vcodec^=avc]+ba[acodec^=mp4a]/bv[height<=${j.height}]+ba/b[height<=${j.height}]/bv*+ba/b`, '--merge-output-format', 'mp4'];
-      await spawnYtDlp(j, [...args, '--ffmpeg-location', FFMPEG_BIN, '--no-playlist', '--no-warnings', '--no-cache-dir', '--progress', '--newline', '--socket-timeout', '20', '--retries', '2', '-o', outTpl, j.url], 1, 0);
+      await spawnYtDlp(j, [...cookieArgs(), ...proxyArgs(), ...args, '--ffmpeg-location', FFMPEG_BIN, '--no-playlist', '--no-warnings', '--no-cache-dir', '--progress', '--newline', '--socket-timeout', '20', '--retries', '2', '-o', outTpl, j.url], 1, 0);
       await finishJobFile(j, j.id, j.kind === 'mp3' ? 'audio/mpeg' : 'video/mp4', j.kind === 'mp3' ? 'mp3' : 'mp4');
     }
     j.status = 'done';
@@ -1223,7 +1268,7 @@ function spawnYtDlp(j, args, scale, base, timeoutMs = 600000) {
 async function runTrim(j, outTpl) {
   const srcTpl = path.join(TMP_DIR, `${j.id}__src.%(ext)s`);
   j.phase = 'Mengunduh video...';
-  await spawnYtDlp(j, ['-f', `bv[height<=720]+ba/b[height<=720]/b`, '--merge-output-format', 'mp4',
+  await spawnYtDlp(j, [...cookieArgs(), ...proxyArgs(), '-f', `bv[height<=720]+ba/b[height<=720]/b`, '--merge-output-format', 'mp4',
     '--ffmpeg-location', FFMPEG_BIN, '--no-playlist', '--no-warnings', '--no-cache-dir',
     '--progress', '--newline', '--socket-timeout', '20', '--retries', '2', '-o', srcTpl, j.url], 0.8, 0);
   const srcs = (await fsp.readdir(TMP_DIR)).filter((f) => f.startsWith(`${j.id}__src`) && !f.endsWith('.part'));
@@ -1355,20 +1400,52 @@ export async function cookiesHealthHandler(req, res) {
   res.json({ success: true, ok: HAS_COOKIES, detail: HAS_COOKIES ? 'Cookies terpasang.' : 'Cookies belum dipasang di server.' });
 }
 
-// Cek kesehatan cookies IG dengan request live (khusus admin, agak lambat)
-export async function checkCookies() {
-  if (!HAS_COOKIES) return { ok: false, detail: 'Tidak ada file cookies.txt di server.' };
+// Upload/refresh cookies.txt via admin (VPS saja; Vercel read-only). Slot 1..5.
+export async function saveCookies(req, res) {
+  if (!(await apiRateLimit(req, res, { max: 10 }))) return;
+  const b = req.body && typeof req.body === 'object' ? req.body : {};
+  const admin = process.env.ADMIN_KEY || 'van313-admin';
+  if (b.key !== admin) return res.status(403).json({ success: false, error: 'Kunci admin salah.' });
+  if (process.env.VERCEL) return res.status(501).json({ success: false, error: 'Upload cookies hanya didukung di VPS/server penuh (Vercel read-only).' });
+  const slot = Math.min(Math.max(parseInt(b.slot) || 1, 1), 5);
+  const content = String(b.content || '');
+  if (content.length < 50 || content.length > 300000) return res.status(400).json({ success: false, error: 'Isi cookies tidak valid (kosong / terlalu besar).' });
+  const head = content.split('\n').slice(0, 30).join('\n');
+  if (!/netscape http cookie file/i.test(head) && !/\t(\.)?(instagram\.com|facebook\.com)/i.test(head)) {
+    return res.status(400).json({ success: false, error: 'Format bukan Netscape cookies.txt (export via ekstensi "Get cookies.txt LOCALLY").' });
+  }
+  if (!/(instagram\.com|facebook\.com)/i.test(content)) return res.status(400).json({ success: false, error: 'Tidak ada cookie instagram.com/facebook.com di file ini.' });
+  const fname = slot === 1 ? 'cookies.txt' : `cookies${slot}.txt`;
+  try {
+    await fsp.writeFile(path.join(__dirname, '..', fname), content.replace(/\r\n/g, '\n'), { mode: 0o600 });
+  } catch { return res.status(500).json({ success: false, error: 'Gagal menyimpan file cookies.' }); }
+  refreshCookieFiles();
+  return res.json({ success: true, file: fname, files: cookiesStatus() });
+}
+
+// Cek kesehatan cookies IG dengan request live per file (khusus admin, agak lambat)
+function testOneCookie(idx) {
   return new Promise((resolve) => {
-    const child = spawn(YTDLP_BIN, [...baseArgs(), '--no-playlist', '--skip-download', '--print', '%(id)s', 'https://www.instagram.com/reel/DdA4TuFJrbh/'], { timeout: 45000 });
+    const child = spawn(YTDLP_BIN, [...baseArgs(idx), '--no-playlist', '--skip-download', '--print', '%(id)s', 'https://www.instagram.com/reel/DdA4TuFJrbh/'], { timeout: 45000 });
     let out = '', err = '';
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { err += d; });
     child.on('error', (e) => resolve({ ok: false, detail: String(e.message) }));
     child.on('close', (code) => {
-      if (code === 0 && out.trim()) resolve({ ok: true, detail: 'Cookies valid (tes reel IG sukses).' });
-      else resolve({ ok: false, detail: `Tes gagal: ${err.split('\n').map((l) => l.replace(/^ERROR:\s*/i, '')).find((l) => l.trim()) || 'unknown'}`.slice(0, 250) });
+      if (code === 0 && out.trim()) resolve({ ok: true, detail: 'Valid (tes reel IG sukses).' });
+      else resolve({ ok: false, detail: `Tes gagal: ${err.split('\n').map((l) => l.replace(/^ERROR:\s*/i, '')).find((l) => l.trim()) || 'unknown'}`.slice(0, 200) });
     });
   });
+}
+export async function checkCookies() {
+  if (!COOKIE_FILES.length) return { ok: false, detail: 'Tidak ada file cookies di server.' };
+  const files = [];
+  for (let i = 0; i < COOKIE_FILES.length; i++) {
+    const r = await testOneCookie(i);
+    files.push({ file: path.basename(COOKIE_FILES[i]), ok: r.ok, detail: r.detail });
+  }
+  const good = files.filter((f) => f.ok).length;
+  return { ok: good > 0, detail: good ? `${good}/${files.length} cookies valid.` : 'Semua cookies gagal (lihat per file).', files };
 }
 
 export async function statsHandler(req, res) {
@@ -1509,7 +1586,7 @@ export async function convertToFile({ title, contentType, ext, ytdlpArgs, timeou
   const filename = sanitizeFilename(req.query?.filename || title, 'media') + `.${ext}`;
   const id = crypto.randomBytes(8).toString('hex');
   const outTpl = path.join(TMP_DIR, `${id}.%(ext)s`);
-  const args = [...ytdlpArgs, '--ffmpeg-location', FFMPEG_BIN, '--no-playlist', '--no-warnings',
+  const args = [...cookieArgs(), ...proxyArgs(), ...ytdlpArgs, '--ffmpeg-location', FFMPEG_BIN, '--no-playlist', '--no-warnings',
     '--no-cache-dir', '--socket-timeout', '20', '--retries', '2', '-o', outTpl, v.url];
 
   const child = spawn(YTDLP_BIN, args, { timeout: timeoutMs });

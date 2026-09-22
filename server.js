@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import handler, {
   proxyDownload, convertToFile, getHealth, getJob, createJob, cancelJob, serveJobFile,
-  searchVideos, statsHandler, clientLog, envConfig, logReq, apiRateLimit, policyGuard, cookiesHealthHandler, maybeUpdateYtDlp,
+  searchVideos, statsHandler, clientLog, envConfig, logReq, apiRateLimit, policyGuard, cookiesHealthHandler, saveCookies, maybeUpdateYtDlp,
   tryStartJob, endJob, YTDLP_BIN, FFMPEG_BIN, HAS_COOKIES, HAS_FFMPEG,
 } from './api/index.js';
 
@@ -16,7 +16,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 app.set('trust proxy', true);
 
-app.use(express.json({ limit: '64kb' }));
+app.use((req, res, next) => {
+  if (req.path === '/api/admin/cookies') return express.json({ limit: '512kb' })(req, res, next);
+  return express.json({ limit: '64kb' })(req, res, next);
+});
 
 /* ---------- Batas konversi bersamaan (MP3/HD berat, maks 2) ---------- */
 function jobGuardOnce(req, res, next) {
@@ -113,6 +116,7 @@ app.get('/api/env.js', (req, res) => {
 });
 app.get('/api/cookies/health', async (req, res) => { await cookiesHealthHandler(req, res); });
 app.get('/api/cookies-health', async (req, res) => { await cookiesHealthHandler(req, res); });
+app.post('/api/admin/cookies', async (req, res) => { await saveCookies(req, res); });
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
