@@ -294,7 +294,7 @@ export function validateTargetUrl(raw) {
   return { ok: true, url: u.toString() };
 }
 
-function friendlyYtDlpError(stderr) {
+export function friendlyYtDlpError(stderr) {
   const s = String(stderr || '');
   if (/unsupported url/i.test(s)) return { status: 400, error: 'Link tidak didukung. Pastikan itu link video/foto/audio publik (TikTok, IG, YouTube, X, FB, dll).' };
   if (/private|login required|log in to|cookies.*(required|expired)|not logged/i.test(s)) return { status: 403, error: 'Konten private / butuh login (sering terjadi di IG Story & akun dikunci). Coba link publik, atau pasang cookies.txt di server.', hint: HAS_COOKIES ? 'cookies_maybe_expired' : 'need_cookies' };
@@ -308,7 +308,8 @@ function friendlyYtDlpError(stderr) {
   }
   if (/empty media response/i.test(s)) return { status: 404, error: 'Instagram tidak mengembalikan media (postingan private / dihapus / ID salah). Coba link publik lain, atau pasang cookies.txt bila itu konten akun yang Anda follow.', hint: HAS_COOKIES ? 'cookies_maybe_expired' : 'need_cookies' };
   if (/ip.*block/i.test(s)) return { status: 502, error: 'IP server diblokir oleh platform sumber. Coba lagi nanti.' };
-  if (/sign in to confirm|confirm your age|age-gated/i.test(s)) return { status: 403, error: 'Video dibatasi umur / butuh login, tidak bisa diambil.' };
+  if (/not a bot/i.test(s)) return { status: 429, error: 'YouTube meminta verifikasi bot dari IP server ini (bukan salah videonya). Tunggu 1-2 menit lalu coba lagi; bila sering, admin perlu pasang cookies YouTube / proxy.', hint: HAS_COOKIES ? 'cookies_maybe_expired' : 'need_cookies' };
+  if (/confirm your age|age-gated|age.restricted/i.test(s)) return { status: 403, error: 'Video dibatasi umur. Butuh cookies YouTube dari akun yang sudah verifikasi umur (lihat Panduan).', hint: HAS_COOKIES ? 'cookies_maybe_expired' : 'need_cookies' };
   if (/premiere|upcoming|live.*(scheduled|upcoming)/i.test(s)) return { status: 400, error: 'Video belum tayang / masih premiere. Tunggu sampai rilis.' };
   const firstErr = s.split('\n').map((l) => l.replace(/^ERROR:\s*/i, '').trim()).find((l) => l && !l.startsWith('WARNING'));
   return { status: 500, error: firstErr ? `Gagal mengambil media: ${firstErr.slice(0, 220)}` : 'Gagal mengambil media dari link tersebut.' };
@@ -338,7 +339,7 @@ function runYtDlpJson(args, timeoutMs = YTDLP_TIMEOUT_MS, cookiesIdx = 0) {
           else next.push('--cookies', COOKIE_FILES[cookiesIdx + 1]);
           return resolve(runYtDlpJson(next, timeoutMs, cookiesIdx + 1));
         }
-        return resolve({ ok: false, ...fr, _retryable: /429|too many requests|timed out|timeout|not granting access/i.test(stderr) });
+        return resolve({ ok: false, ...fr, _retryable: /429|too many requests|timed out|timeout|not granting access|not a bot/i.test(stderr) });
       }
       try { resolve({ ok: true, info: JSON.parse(stdout) }); }
       catch { resolve({ ok: false, status: 500, error: 'Respon yt-dlp tidak valid.' }); }
@@ -1412,10 +1413,10 @@ export async function saveCookies(req, res) {
   const content = String(b.content || '');
   if (content.length < 50 || content.length > 300000) return res.status(400).json({ success: false, error: 'Isi cookies tidak valid (kosong / terlalu besar).' });
   const head = content.split('\n').slice(0, 30).join('\n');
-  if (!/netscape http cookie file/i.test(head) && !/\t(\.)?(instagram\.com|facebook\.com)/i.test(head)) {
+  if (!/netscape http cookie file/i.test(head) && !/\t(\.)?(instagram\.com|facebook\.com|youtube\.com|google\.com)/i.test(head)) {
     return res.status(400).json({ success: false, error: 'Format bukan Netscape cookies.txt (export via ekstensi "Get cookies.txt LOCALLY").' });
   }
-  if (!/(instagram\.com|facebook\.com)/i.test(content)) return res.status(400).json({ success: false, error: 'Tidak ada cookie instagram.com/facebook.com di file ini.' });
+  if (!/(instagram\.com|facebook\.com|youtube\.com|google\.com)/i.test(content)) return res.status(400).json({ success: false, error: 'Tidak ada cookie Instagram/Facebook/YouTube di file ini.' });
   const fname = slot === 1 ? 'cookies.txt' : `cookies${slot}.txt`;
   try {
     await fsp.writeFile(path.join(__dirname, '..', fname), content.replace(/\r\n/g, '\n'), { mode: 0o600 });

@@ -157,3 +157,12 @@ cookies login.
   (+ `COBALT_KEY` bila instance diproteksi key).
 - Mendukung IG/FB/TikTok/X/dll. sebagai fallback terakhir milik sendiri,
   tidak tergantung uptime API gratisan pihak ketiga.
+
+## Cookies YouTube (khusus video age-gate / verifikasi bot)
+- Error `Sign in to confirm your age` = video dibatasi umur -> butuh cookies
+  dari akun YouTube yang sudah verifikasi umur.
+- Error `confirm you are not a bot` = IP server dicurigai YouTube (terutama IP
+  datacenter/Vercel). Biasanya sembuh sendiri 1-2 menit; kalau sering, pasang
+  cookies YouTube dan/atau `YTDLP_PROXY`.
+- Cara pasang sama: export cookies saat login youtube.com -> upload via
+  `/admin.html` (slot 1-5, boleh digabung dengan cookies IG/FB).

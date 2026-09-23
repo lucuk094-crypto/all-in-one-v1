@@ -219,7 +219,11 @@ async function fetchMedia() {
     } catch (e) {
         logClient('analyze: ' + (e.message || e), url);
         var cookieish = /cookie/i.test(e.hint || '') || /cookie|login|masuk/i.test(e.message || '');
-        showError(e.message || 'Error', cookieish ? 'e.cookies' : null);
+        var tip = null;
+        if (cookieish) {
+            tip = /youtu\.?be/i.test(url) ? 'e.cookies_yt' : (/instagram|facebook|fb\.watch/i.test(url) ? 'e.cookies' : 'e.cookies_gen');
+        }
+        showError(e.message || 'Error', tip);
     }
 }
 function toggleBatch() {
