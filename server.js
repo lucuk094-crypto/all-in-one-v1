@@ -40,8 +40,9 @@ app.get('/api/health', async (req, res) => {
   res.json(await getHealth());
 });
 
-// Ekstrak info media
+// Ekstrak info media & YT Video query
 app.all('/api/index', async (req, res) => { await handler(req, res); });
+app.all('/api/ytvideo', async (req, res) => { await handler(req, res); });
 app.all('/api', async (req, res) => { await handler(req, res); });
 
 // Proxy download langsung (bebas CORS)

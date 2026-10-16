@@ -68,7 +68,7 @@
     <div class="floating-shape shape-2"></div>
 
     <div class="marquee-top">
-        <div class="marquee-content" data-i18n="marquee">ULTRA DOWNLOADER • TIKTOK TANPA WATERMARK • IG REELS &amp; FOTO • YOUTUBE HD &amp; MP3 • FACEBOOK HD • TWITTER / X • CEPAT &amp; GRATIS • </div>
+        <div class="marquee-content" data-i18n="marquee">ULTRA DOWNLOADER • CAPCUT NO WM • SPOTIFY TRACK &amp; PLAYLIST • PINTEREST HD • YOUTUBE 720P &amp; YT VIDEO • SNAPSAVE IG • TIKTOK NO WM • FACEBOOK &amp; X • OTOMATIS UNDUH • </div>
     </div>
 
     <nav class="navbar">
@@ -109,12 +109,12 @@
                 <div class="card-body">
                     <div class="input-wrapper">
                         <div class="input-label-row">
-                            <label for="urlInput" class="input-label"><span data-i18n="form.url">01 // TARGET URL</span></label>
+                            <label for="urlInput" class="input-label"><span data-i18n="form.url">01 // TARGET URL ATAU JUDUL VIDEO</span></label>
                             <span id="platBadge" class="plat-badge hidden"></span>
                         </div>
                         <div class="nb-input-group">
                             <div class="nb-field-wrap">
-                                <input type="url" id="urlInput" class="cyber-input" data-i18n-ph="form.ph" placeholder="Tempel link TikTok, IG, YouTube, FB, X di sini..." autocomplete="off" spellcheck="false">
+                                <input type="text" id="urlInput" class="cyber-input" data-i18n-ph="form.ph" placeholder="Tempel link CapCut, Spotify, Pinterest, YouTube, IG, TikTok, FB, X atau ketik judul video..." autocomplete="off" spellcheck="false">
                                 <button type="button" id="clearBtn" class="clear-field-btn hidden" onclick="clearUrlInput()" aria-label="Clear URL"><svg class="ic"><use href="#i-close"/></svg></button>
                             </div>
                             <button type="button" id="pasteBtn" class="mini-btn paste-action-btn" onclick="pasteClipboard()"><svg class="ic"><use href="#i-paste"/></svg><span data-i18n="form.paste">Tempel</span></button>
@@ -122,12 +122,16 @@
                     </div>
 
                     <div class="examples-block">
-                        <div class="examples-label" data-i18n="form.examples">CONTOH CEPAT (KLIK UNTUK TES):</div>
+                        <div class="examples-label" data-i18n="form.examples">FITUR &amp; CONTOH CEPAT (KLIK UNTUK TES LANGSUNG):</div>
                         <div class="platform-tags">
+                            <span data-ex="https://www.capcut.com/tv2/ZSXXSAX2q/">CAPCUT NO WM</span>
+                            <span data-ex="https://open.spotify.com/track/5vQSU3pxA9atqN6zMrcTU7?si=jEdF4DG3R2ShotykgqJE4A&utm_source=copy-link">SPOTIFY TRACK</span>
+                            <span data-ex="https://open.spotify.com/playlist/6Tp1XghEcLfAsZfwHZA6dK?si=FtE2Y1DsSKiy5csMSmrYXw&utm_source=copy-link&pi=TXUyK1-lRRKQC">SPOTIFY PLAYLIST</span>
+                            <span data-ex="https://pin.it/5TJ3CCrNF">PINTEREST HD</span>
+                            <span data-ex="https://www.youtube.com/watch?v=dQw4w9WgXcQ">YOUTUBE 720P</span>
+                            <span data-ex="cacamelon">YT VIDEO (QUERY)</span>
+                            <span data-ex="https://www.instagram.com/reel/Dbzp_KGTxOI/?igsi=OXdiMmlpMjIyeDc5">SNAPSAVE IG</span>
                             <span data-ex="https://www.tiktok.com/@zachking/video/7477980664416210222">TIKTOK NO WM</span>
-                            <span data-ex="https://www.instagram.com/reel/DdA4TuFJrbh/">IG REELS</span>
-                            <span data-ex="https://www.youtube.com/watch?v=dQw4w9WgXcQ">YOUTUBE HD</span>
-                            <span data-ex="https://www.youtube.com/watch?v=dQw4w9WgXcQ">YOUTUBE MP3</span>
                             <span data-ex="https://www.facebook.com/watch?v=1574708892866390">FACEBOOK HD</span>
                             <span data-ex="https://x.com/SpaceX/status/2101530724335559060">TWITTER / X</span>
                         </div>
@@ -140,6 +144,10 @@
                     </button>
 
                     <div class="secondary-tools-bar">
+                        <button type="button" id="autoDlToggle" class="toggle-link active" onclick="toggleAutoDl()">
+                            <svg class="ic"><use href="#i-download"/></svg>
+                            <span id="autoDlLabel">Auto-Download: ON</span>
+                        </button>
                         <button type="button" id="batchToggle" class="toggle-link" onclick="toggleBatch()">
                             <svg class="ic"><use href="#i-box"/></svg>
                             <span data-i18n="form.batch">Mode Batch (Proses Banyak Link Sekaligus)</span>
@@ -156,14 +164,15 @@
             <section class="cyber-card search-card anim-in">
                 <div class="card-body search-body">
                     <div class="input-label-row">
-                        <label for="searchInput" class="input-label search-title"><svg class="ic"><use href="#i-search"/></svg> <span data-i18n="form.search_lbl">02 // PENCARIAN YOUTUBE LANGSUNG</span></label>
-                        <span class="nb-tag-chip">YT ENGINE</span>
+                        <label for="searchInput" class="input-label search-title"><svg class="ic"><use href="#i-search"/></svg> <span data-i18n="form.search_lbl">02 // YT VIDEO INSTAN &amp; PENCARIAN YOUTUBE</span></label>
+                        <span class="nb-tag-chip">YT VIDEO + SEARCH</span>
                     </div>
                     <div class="nb-input-group">
                         <div class="nb-field-wrap">
-                            <input type="text" id="searchInput" class="cyber-input" data-i18n-ph="form.search_ph" placeholder="Ketik judul lagu atau video YouTube..." autocomplete="off">
+                            <input type="text" id="searchInput" class="cyber-input" data-i18n-ph="form.search_ph" placeholder="Ketik judul video YouTube (contoh: cacamelon, lofi hip hop)..." autocomplete="off">
                         </div>
-                        <button type="button" onclick="doSearch()" class="mini-btn alt"><svg class="ic"><use href="#i-search"/></svg><span data-i18n="form.search">Cari Video</span></button>
+                        <button type="button" onclick="doYtVideoDirect()" class="mini-btn" title="Langsung ambil &amp; unduh video terbaik dari judul"><svg class="ic"><use href="#i-zap"/></svg><span data-i18n="form.ytvideo_btn">YT Video (Auto)</span></button>
+                        <button type="button" onclick="doSearch()" class="mini-btn alt" title="Cari daftar video YouTube"><svg class="ic"><use href="#i-search"/></svg><span data-i18n="form.search">Cari Daftar</span></button>
                     </div>
                 </div>
             </section>

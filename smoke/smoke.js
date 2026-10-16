@@ -4,7 +4,11 @@ const BASE = process.env.BASE || 'http://localhost:3000';
 const YT = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 const TT = 'https://www.tiktok.com/@khaby.lame/video/6971795480774708485'; // oEmbed-verified 2026-09-22
 const FB = 'https://www.facebook.com/share/r/176Gd2Y3F5/';
-const IG = 'https://www.instagram.com/reel/Da_eH4pva9C/?igsh=MWpzNXdhbjE1cjZmOA==';
+const IG = 'https://www.instagram.com/reel/Dbzp_KGTxOI/?igsi=OXdiMmlpMjIyeDc5';
+const CAPCUT = 'https://www.capcut.com/tv2/ZSXXSAX2q/';
+const SPOTIFY_TRACK = 'https://open.spotify.com/track/5vQSU3pxA9atqN6zMrcTU7?si=jEdF4DG3R2ShotykgqJE4A&utm_source=copy-link';
+const SPOTIFY_PL = 'https://open.spotify.com/playlist/6Tp1XghEcLfAsZfwHZA6dK?si=FtE2Y1DsSKiy5csMSmrYXw&utm_source=copy-link&pi=TXUyK1-lRRKQC';
+const PINTEREST = 'https://pin.it/5TJ3CCrNF';
 let fails = 0;
 async function t(name, fn) {
   try { await fn(); console.log('PASS', name); }
@@ -43,10 +47,35 @@ async function post(path, body) {
     assert(r.ok && j.success, 'analyze failed: ' + JSON.stringify(j).slice(0, 200));
     assert(j.downloads && ((j.downloads.video || []).length + (j.downloads.audio || []).length) > 0, 'no downloads');
   });
-  await t('analyze IG reel', async () => {
+  await t('analyze IG reel (SnapSave)', async () => {
     const { r, j } = await post('/api/index', { url: IG });
     assert(r.ok && j.success, 'analyze failed: ' + JSON.stringify(j).slice(0, 200));
     assert(j.downloads && ((j.downloads.video || []).length + (j.downloads.audio || []).length) > 0, 'no downloads');
+  });
+  await t('analyze CapCut', async () => {
+    const { r, j } = await post('/api/index', { url: CAPCUT });
+    assert(r.ok && j.success, 'analyze failed: ' + JSON.stringify(j).slice(0, 200));
+    assert(j.downloads && (j.downloads.video || []).length > 0, 'no capcut video');
+  });
+  await t('analyze Spotify Track', async () => {
+    const { r, j } = await post('/api/index', { url: SPOTIFY_TRACK });
+    assert(r.ok && j.success, 'analyze failed: ' + JSON.stringify(j).slice(0, 200));
+    assert(j.downloads && (j.downloads.audio || []).length > 0, 'no spotify audio');
+  });
+  await t('analyze Spotify Playlist', async () => {
+    const { r, j } = await post('/api/index', { url: SPOTIFY_PL });
+    assert(r.ok && j.success && j.is_playlist, 'playlist analyze failed: ' + JSON.stringify(j).slice(0, 200));
+    assert(Array.isArray(j.items) && j.items.length > 0, 'no playlist tracks');
+  });
+  await t('analyze Pinterest', async () => {
+    const { r, j } = await post('/api/index', { url: PINTEREST });
+    assert(r.ok && j.success, 'analyze failed: ' + JSON.stringify(j).slice(0, 200));
+    assert(j.downloads && ((j.downloads.image || []).length + (j.downloads.video || []).length) > 0, 'no pinterest media');
+  });
+  await t('analyze YT Video query', async () => {
+    const { r, j } = await post('/api/index', { q: 'cacamelon', url: 'ytvideo:cacamelon' });
+    assert(r.ok && j.success, 'ytvideo analyze failed: ' + JSON.stringify(j).slice(0, 200));
+    assert(j.downloads && (j.downloads.video || []).length > 0, 'no ytvideo mp4');
   });
   await t('search', async () => {
     const r = await fetch(BASE + '/api/search?q=never%20gonna');

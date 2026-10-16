@@ -49,6 +49,10 @@
     {
       "source": "/api/admin/cookies",
       "destination": "/api/admin?p=cookies"
+    },
+    {
+      "source": "/api/ytvideo",
+      "destination": "/api/index"
     }
   ]
 }

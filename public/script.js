@@ -8,6 +8,38 @@ var GALLERY = [];
 var LB_INDEX = 0;
 var ACTIVE_JOBS = {};
 var BATCH_MODE = false;
+var AUTO_DL = true;
+try { if (localStorage.getItem('ultraAutoDl') === '0') AUTO_DL = false; } catch (e) {}
+
+function syncAutoDlUi() {
+    var btn = $('autoDlToggle');
+    var lbl = $('autoDlLabel');
+    if (btn) btn.classList.toggle('active', !!AUTO_DL);
+    if (lbl) lbl.textContent = (isEN() ? 'Auto-Download: ' : 'Auto-Download: ') + (AUTO_DL ? 'ON' : 'OFF');
+}
+function toggleAutoDl() {
+    AUTO_DL = !AUTO_DL;
+    try { localStorage.setItem('ultraAutoDl', AUTO_DL ? '1' : '0'); } catch (e) {}
+    syncAutoDlUi();
+    toast(AUTO_DL
+        ? (isEN() ? 'Auto-Download enabled!' : 'Auto-Download diaktifkan!')
+        : (isEN() ? 'Auto-Download disabled.' : 'Auto-Download dinonaktifkan.'));
+}
+function triggerAutoDownload(dlUrl, label) {
+    if (!dlUrl || !AUTO_DL) return;
+    toast((isEN() ? 'Auto-downloading: ' : 'Mengunduh otomatis: ') + String(label || 'Media').slice(0, 42) + '...');
+    setTimeout(function () {
+        try {
+            var a = document.createElement('a');
+            a.href = dlUrl;
+            a.setAttribute('download', '');
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function () { try { document.body.removeChild(a); } catch (e) {} }, 2500);
+        } catch (e) {}
+    }, 350);
+}
 
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -147,6 +179,7 @@ async function pasteClipboard() {
         var txt = await navigator.clipboard.readText();
         var m = String(txt || '').match(/https?:\/\/[^\s"'<>]+/);
         if (m) { inp.value = m[0]; detectPlatform(); toast(t('copied')); }
+        else if (txt && txt.trim()) { inp.value = txt.trim(); detectPlatform(); toast(t('copied')); }
         else toast(t('e.clip'));
     } catch (e) { toast(t('e.clip')); inp.focus(); }
 }
@@ -167,10 +200,22 @@ function detectPlatform() {
     var cb = $('clearBtn');
     if (cb && inp) cb.classList.toggle('hidden', !inp.value.trim());
     var badge = $('platBadge'); if (!badge || !inp) return;
-    var u = inp.value.toLowerCase();
-    var hosts = [['tiktok','TIKTOK'],['instagram','INSTAGRAM'],['youtu','YOUTUBE'],['facebook','FACEBOOK'],['fb.','FACEBOOK'],['twitter','TWITTER / X'],['x.com','TWITTER / X'],['threads','THREADS'],['soundcloud','SOUNDCLOUD'],['spotify','SPOTIFY'],['pinterest','PINTEREST'],['pin.it','PINTEREST'],['reddit','REDDIT'],['vimeo','VIMEO'],['dailymotion','DAILYMOTION'],['twitch','TWITCH'],['kick.com','KICK'],['likee','LIKEE'],['snack','SNACKVIDEO'],['capcut','CAPCUT'],['bilibili','BILIBILI'],['b23.tv','BILIBILI'],['douyin','DOUYIN'],['vk.com','VK'],['ok.ru','OK.RU'],['rutube','RUTUBE'],['t.me','TELEGRAM'],['snapchat','SNAPCHAT'],['streamable','STREAMABLE'],['rumble','RUMBLE'],['tumblr','TUMBLR'],['imgur','IMGUR'],['giphy','GIPHY'],['drive.google','GDRIVE'],['dropbox','DROPBOX'],['mediafire','MEDIAFIRE']];
+    var raw = inp.value.trim();
+    var u = raw.toLowerCase();
     var p = '';
-    for (var i = 0; i < hosts.length; i++) { if (u.indexOf(hosts[i][0]) >= 0) { p = hosts[i][1]; break; } }
+    if (u.indexOf('spotify') >= 0 && u.indexOf('/playlist/') >= 0) p = 'SPOTIFY PLAYLIST';
+    else if (u.indexOf('spotify') >= 0 || u.indexOf('spoti.fi') >= 0) p = 'SPOTIFY TRACK';
+    else if (u.indexOf('capcut') >= 0) p = 'CAPCUT NO WM';
+    else if (u.indexOf('pinterest') >= 0 || u.indexOf('pin.it') >= 0) p = 'PINTEREST HD';
+    else if (u.indexOf('instagram') >= 0 || u.indexOf('instagr.am') >= 0) p = 'SNAPSAVE IG';
+    else if (u.indexOf('youtu') >= 0) p = 'YOUTUBE 720P';
+    else {
+        var hosts = [['tiktok','TIKTOK'],['facebook','FACEBOOK'],['fb.','FACEBOOK'],['twitter','TWITTER / X'],['x.com','TWITTER / X'],['threads','THREADS'],['soundcloud','SOUNDCLOUD'],['reddit','REDDIT'],['vimeo','VIMEO'],['dailymotion','DAILYMOTION'],['twitch','TWITCH'],['kick.com','KICK'],['likee','LIKEE'],['snack','SNACKVIDEO'],['bilibili','BILIBILI'],['b23.tv','BILIBILI'],['douyin','DOUYIN'],['vk.com','VK'],['ok.ru','OK.RU'],['rutube','RUTUBE'],['t.me','TELEGRAM'],['snapchat','SNAPCHAT'],['streamable','STREAMABLE'],['rumble','RUMBLE'],['tumblr','TUMBLR'],['imgur','IMGUR'],['giphy','GIPHY'],['drive.google','GDRIVE'],['dropbox','DROPBOX'],['mediafire','MEDIAFIRE']];
+        for (var i = 0; i < hosts.length; i++) { if (u.indexOf(hosts[i][0]) >= 0) { p = hosts[i][1]; break; } }
+    }
+    if (!p && raw.length >= 2 && !/^https?:\/\//i.test(raw) && raw.indexOf('://') < 0) {
+        p = 'YT VIDEO (QUERY)';
+    }
     badge.textContent = p;
     badge.classList.toggle('hidden', !p);
 }
@@ -194,8 +239,9 @@ function showError(msg, hintKey) {
 function hideError() {
     var box = $('error-msg'); if (box) box.classList.add('hidden');
 }
-async function doAnalyze(url) {
-    var r = await fetch('/api/index', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(guardedBody({ url: url })) });
+async function doAnalyze(urlOrQuery, isQuery) {
+    var payload = isQuery ? { q: urlOrQuery, url: 'ytvideo:' + urlOrQuery } : { url: urlOrQuery };
+    var r = await fetch('/api/index', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(guardedBody(payload)) });
     var j = await r.json().catch(function () { return {}; });
     if (!r.ok || !j.success) {
         var err = new Error(j.error || ('HTTP ' + r.status));
@@ -205,7 +251,9 @@ async function doAnalyze(url) {
     return j;
 }
 function cleanUrl(u) {
-    return String(u || '').replace(/&amp;/gi, '&').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, '').trim();
+    var s = String(u || '').replace(/&amp;/gi, '&').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+    if (/^https?:\/\//i.test(s)) return s.replace(/\s+/g, '');
+    return s.replace(/\s+/g, ' ');
 }
 function validUrl(u) { return /^https?:\/\/[^\s"'<>]+$/i.test(u); }
 
@@ -215,15 +263,17 @@ async function fetchMedia() {
     inp.value = url;
     detectPlatform();
     if (!url) { toast(t('e.empty')); inp.focus(); return; }
-    if (!validUrl(url)) { showError(t('e.badurl')); return; }
+    var isUrl = validUrl(url);
+    var isQuery = !isUrl && url.length >= 2 && url.indexOf('://') < 0 && !/^(localhost|127\.0\.0\.1)/i.test(url);
+    if (!isUrl && !isQuery) { showError(t('e.badurl')); return; }
     if (needCaptcha()) return;
     hideError();
     var res = $('result'); if (res) res.innerHTML = '';
     setLoading(true);
     try {
-        var j = await doAnalyze(url);
+        var j = await doAnalyze(url, isQuery);
         setLoading(false);
-        renderJson(j, url);
+        renderJson(j, j.original_url || url, false, true);
         saveHistory({ url: url, title: (j.info && j.info.title) || url, badge: (j.info && j.info.platform) || '' });
         renderHistory();
         if (res && res.firstChild) res.firstChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -254,7 +304,7 @@ async function fetchBatch() {
     for (var i = 0; i < urls.length; i++) {
         try {
             var j = await doAnalyze(urls[i]);
-            renderJson(j, urls[i], true);
+            renderJson(j, urls[i], true, false);
             okCount++;
             saveHistory({ url: urls[i], title: (j.info && j.info.title) || urls[i], badge: (j.info && j.info.platform) || '' });
         } catch (e) {
@@ -274,9 +324,16 @@ async function fetchBatch() {
 
 /* ---------- render hasil ---------- */
 function proxied(item, title, kind, inline) {
-    var ext = item.extension || (kind === 'audio' ? 'mp3' : kind === 'image' ? 'jpg' : 'mp4');
-    var params = { url: item.url, filename: title, ext: ext };
+    var isObj = item && typeof item === 'object';
+    var ext = (isObj && item.extension) || (kind === 'audio' ? 'mp3' : kind === 'image' ? 'jpg' : 'mp4');
+    var targetUrl = isObj ? (inline && item.preview_url ? item.preview_url : item.url) : String(item || '');
+    var params = { url: targetUrl, filename: title, ext: ext };
     if (inline) params.inline = '1';
+    if (isObj) {
+        if (item.src_url) params.src_url = item.src_url;
+        if (item.src_api) params.src_api = item.src_api;
+        if (item.src_q) params.src_q = item.src_q;
+    }
     return apiLink('/api/download', params);
 }
 function qrToggle(btn, url) {
@@ -297,7 +354,17 @@ function shortQ(v) {
     if (m) return m[1] + 'p';
     return q.split('•')[0].trim().slice(0, 14) || 'Video';
 }
-function renderJson(j, srcUrl, append) {
+function inlineMediaSrc(item, title, kind) {
+    if (!item) return '';
+    if (kind === 'audio' && item.preview_url && !/rapidcdn\.app|secure-signed\.pages\.dev/i.test(item.preview_url)) {
+        return item.preview_url;
+    }
+    if (item.preview_url || /rapidcdn\.app|secure-signed\.pages\.dev/i.test(item.url || '')) {
+        return proxied(item, title, kind, true);
+    }
+    return item.url;
+}
+function renderJson(j, srcUrl, append, allowAutoDl) {
     var res = $('result'); if (!res) return;
     if (!append) res.innerHTML = '';
     var card = document.createElement('div');
@@ -309,19 +376,30 @@ function renderJson(j, srcUrl, append) {
     if (j.is_playlist || j.is_album) {
         var pl = j.playlist || {};
         var items = j.items || [];
+        var plBadge = info.platform || t('sec.playlist');
         card.innerHTML =
-            '<div class="result-header"><span>' + ic('layers', 15) + ' ' + esc(t('sec.playlist')) + '</span><span class="result-badge">' + (pl.shown || items.length) + '/' + (pl.total || items.length) + ' ' + esc(t('pl.items')) + '</span></div>' +
+            '<div class="result-header"><span>' + ic('layers', 15) + ' ' + esc(plBadge) + '</span><span class="result-badge">' + (pl.shown || items.length) + '/' + (pl.total || items.length) + ' ' + esc(t('pl.items')) + '</span></div>' +
             '<div class="result-body"><div class="media-title" style="font-weight:800;margin-bottom:10px;">' + esc(String(pl.title || title).slice(0, 90)) + '</div>' +
             '<div class="sec-label">' + esc(t('pl.choose')) + '</div><div class="pl-list"></div></div>';
         res.appendChild(card);
         var box = card.querySelector('.pl-list');
         items.forEach(function (it) {
             var row = document.createElement('div');
-            row.className = 'opt-row';
-            row.innerHTML = '<span class="opt-meta">' + esc(String(it.title || '').slice(0, 70)) + (it.duration_label ? ' • ' + esc(it.duration_label) : '') + '</span>';
+            row.className = 'opt-row pl-track-row';
+            var subInfo = [];
+            if (it.uploader) subInfo.push(it.uploader);
+            if (it.album) subInfo.push(it.album);
+            if (it.duration_label && it.duration_label !== '-') subInfo.push(it.duration_label);
+            var thumbHtml = it.thumbnail
+                ? '<img class="pl-thumb" src="' + esc(it.thumbnail) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">'
+                : '';
+            row.innerHTML = '<div class="pl-track-left">' + thumbHtml +
+                '<div class="pl-track-info"><div class="pl-track-title">' + esc(String(it.title || '').slice(0, 75)) + '</div>' +
+                (subInfo.length ? '<div class="pl-track-sub">' + esc(subInfo.join(' • ').slice(0, 80)) + '</div>' : '') +
+                '</div></div>';
             var b = document.createElement('button');
             b.className = 'mini-btn';
-            b.innerHTML = ic('zap', 13) + ' <span>' + esc(t('pl.process')) + '</span>';
+            b.innerHTML = ic('download', 13) + ' <span>' + esc(t('pl.process')) + '</span>';
             b.onclick = function () { if ($('urlInput')) { $('urlInput').value = it.url; detectPlatform(); } fetchMedia(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
             row.appendChild(b);
             box.appendChild(row);
@@ -337,12 +415,14 @@ function renderJson(j, srcUrl, append) {
     h += '<div class="result-meta-line">' +
         (info.uploader ? '<span class="meta-chip">' + ic('user', 12) + ' ' + esc(String(info.uploader).slice(0, 32)) + '</span>' : '') +
         (info.duration_label && info.duration_label !== '-' ? '<span class="meta-chip">' + ic('clock', 12) + ' ' + esc(info.duration_label) + '</span>' : '') +
+        (info.views ? '<span class="meta-chip">' + ic('zap', 12) + ' ' + esc(String(info.views)) + '</span>' : '') +
         (j.cached ? '<span class="meta-chip">' + ic('zap', 12) + ' INSTANT CACHE</span>' : '') + '</div>';
 
     /* Video: player inline + pemilih kualitas */
     if (videos.length) {
+        var v0Src = inlineMediaSrc(videos[0], title, 'video');
         h += '<div class="sec-label">' + ic('film', 14) + ' ' + esc(t('sec.video')) + '</div>';
-        h += '<div class="vplayer"><video controls playsinline preload="metadata"' + (posterUrl ? ' poster="' + esc(posterUrl) + '"' : '') + ' src="' + esc(videos[0].url) + '"></video></div>';
+        h += '<div class="vplayer"><video controls playsinline preload="metadata"' + (posterUrl ? ' poster="' + esc(posterUrl) + '"' : '') + ' src="' + esc(v0Src) + '"></video></div>';
         h += '<div class="vq-row">';
         videos.forEach(function (v, i) {
             h += '<button type="button" class="vq-btn' + (i === 0 ? ' active' : '') + '" data-vq="' + i + '">' + esc(shortQ(v)) + (v.has_audio === false ? ' <em>(' + esc(t('opt.noaudio')) + ')</em>' : '') + '</button>';
@@ -359,8 +439,9 @@ function renderJson(j, srcUrl, append) {
     }
     /* Audio */
     if (audios.length) {
+        var a0Src = inlineMediaSrc(audios[0], title, 'audio');
         h += '<div class="sec-label">' + ic('music', 14) + ' ' + esc(t('sec.audio')) + '</div>';
-        h += '<div class="audio-card"><div class="ac-title">' + esc(String(title).slice(0, 75)) + '</div><audio controls preload="metadata" src="' + esc(audios[0].url) + '"></audio></div>';
+        h += '<div class="audio-card"><div class="ac-title">' + esc(String(title).slice(0, 75)) + '</div><audio controls preload="metadata" src="' + esc(a0Src) + '"></audio></div>';
         audios.forEach(function (a, i) {
             var aSizeStr = (a.filesize_label && a.filesize_label !== 'Unknown') ? ' • ' + a.filesize_label : '';
             h += '<div class="opt-row"><span class="opt-meta">' + esc(a.quality || 'Audio') + ' • ' + esc((a.extension || 'mp3').toUpperCase()) + esc(aSizeStr) + '</span>' +
@@ -446,7 +527,7 @@ function renderJson(j, srcUrl, append) {
             var v = videos[idx];
             if (player && v) {
                 player.dataset.curIdx = String(idx);
-                player.src = v.url;
+                player.src = inlineMediaSrc(v, title, 'video');
                 player.play().catch(function () { });
             }
         };
@@ -455,6 +536,15 @@ function renderJson(j, srcUrl, append) {
         img.style.cursor = 'zoom-in';
         img.onclick = function () { openLightbox(images.map(function (x, i) { return proxied(x, title + '_' + (i + 1), 'image', true); }), +img.getAttribute('data-gi')); };
     });
+
+    /* Auto-Download file terbaik jika diaktifkan (bukan hasil dummy) */
+    if (allowAutoDl && AUTO_DL) {
+        var bestHref = '';
+        if (videos.length) bestHref = proxied(videos[0], title, 'video');
+        else if (audios.length) bestHref = proxied(audios[0], title, 'audio');
+        else if (images.length) bestHref = proxied(images[0], title + '_1', 'image');
+        if (bestHref) triggerAutoDownload(bestHref, title);
+    }
     videos.forEach(function (v, i) {
         var row = card.querySelector('[data-vr="' + i + '"]');
         if (!row) return;
@@ -540,7 +630,28 @@ async function cancelJob(id) {
     closeJobModal();
 }
 
-/* ---------- pencarian ---------- */
+/* ---------- pencarian & YT Video instan ---------- */
+async function doYtVideoDirect() {
+    var inp = $('searchInput'); if (!inp) return;
+    var q = inp.value.trim();
+    if (!q) { toast(t('e.empty')); inp.focus(); return; }
+    if (needCaptcha()) return;
+    var res = $('result'); if (res) res.innerHTML = '';
+    hideError(); setLoading(true);
+    try {
+        var j = await doAnalyze(q, true);
+        setLoading(false);
+        renderJson(j, j.original_url || q, false, true);
+        saveHistory({ url: j.original_url || q, title: (j.info && j.info.title) || q, badge: (j.info && j.info.platform) || 'YT Video' });
+        renderHistory();
+        if (res && res.firstChild) res.firstChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (e) {
+        logClient('ytvideo: ' + (e.message || e), q);
+        setLoading(false);
+        showError(e.message || 'Error');
+    }
+}
+
 async function doSearch() {
     var inp = $('searchInput'); if (!inp) return;
     var q = inp.value.trim();
@@ -640,6 +751,7 @@ async function installPwa() {
 
 /* ---------- boot ---------- */
 document.addEventListener('DOMContentLoaded', function () {
+    syncAutoDlUi();
     renderHistory();
     initServer();
     var ib = $('installBtn');
