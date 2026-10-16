@@ -113,13 +113,14 @@ export function getClientIp(req) {
 
 const rlMem = new Map();
 const DEFAULT_RL_MAX = parseInt(process.env.RATE_LIMIT_MAX, 10) || 180;
-export async function apiRateLimit(req, res, { max = DEFAULT_RL_MAX, windowSec = 60, prefix = 'rl' } = {}) {
+export async function apiRateLimit(req, res, { max = DEFAULT_RL_MAX, windowSec = 60, prefix = '' } = {}) {
   const ip = getClientIp(req);
   const bucket = Math.floor(Date.now() / 1000 / windowSec);
+  const bKey = prefix || `rl_${max}`;
   let n = 1;
   if (USE_UPSTASH) {
     try {
-      const k = `${prefix}:${ip}:${bucket}`;
+      const k = `${bKey}:${ip}:${bucket}`;
       n = await upstash('INCR', k);
       if (n === 1) await upstash('EXPIRE', k, windowSec + 10);
     } catch { n = memBump(); }
@@ -127,7 +128,7 @@ export async function apiRateLimit(req, res, { max = DEFAULT_RL_MAX, windowSec =
     n = memBump();
   }
   function memBump() {
-    const k = `${prefix}:${ip}:${bucket}`;
+    const k = `${bKey}:${ip}:${bucket}`;
     const v = (rlMem.get(k) || 0) + 1;
     rlMem.set(k, v);
     if (rlMem.size > 5000) {

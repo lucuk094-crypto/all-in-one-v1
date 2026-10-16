@@ -3,7 +3,7 @@ import { createJob, apiRateLimit, policyGuard } from './index.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Gunakan POST.' });
-  if (!(await apiRateLimit(req, res, { max: 10 }))) return;
+  if (!(await apiRateLimit(req, res, { max: 60, prefix: 'job_create' }))) return;
   if (!(await policyGuard(req, res))) return;
   const b = req.body && typeof req.body === 'object' ? req.body : {};
   const r = await createJob({ kind: b.kind, url: b.url, height: b.height, start: b.start, end: b.end, filename: b.filename });

@@ -68,7 +68,7 @@ app.get('/api/merge', jobGuardOnce, async (req, res, next) => { if (!(await apiR
 
 // Jobs ber-progress: MP3 / HD-merge / trim
 app.post('/api/job', async (req, res) => {
-  if (!(await apiRateLimit(req, res, { max: 10 }))) return;
+  if (!(await apiRateLimit(req, res, { max: 60, prefix: 'job_create' }))) return;
   if (!(await policyGuard(req, res))) return;
   const b = req.body && typeof req.body === 'object' ? req.body : {};
   const r = await createJob({ kind: b.kind, url: b.url, height: b.height, start: b.start, end: b.end, filename: b.filename });
