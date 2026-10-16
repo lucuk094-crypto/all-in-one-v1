@@ -1,10 +1,10 @@
 // Service Worker — network-first agar perubahan UI/fitur selalu segar, fallback cache saat offline
-const CACHE = 'ultra-dl-v6';
+const CACHE = 'ultra-dl-v7';
 const ASSETS = [
   '/', '/index.html', '/docs.html', '/share.html', '/offline.html',
   '/tos.html', '/privacy.html', '/dmca.html',
   '/style.css', '/script.js', '/i18n.js', '/manifest.webmanifest',
-  '/vendor/qrcode.min.js', '/favicon.svg',
+  '/vendor/qrcode.min.js', '/logo.png', '/favicon.png', '/favicon.svg',
   '/icons/icon-192.png', '/icons/icon-512.png',
 ];
 
