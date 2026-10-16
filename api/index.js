@@ -2,7 +2,7 @@
 // Mendukung: video multi-resolusi, audio, gambar, carousel/album, playlist,
 // MP3 & HD-merge (ditangani server.js), semua sosmed via yt-dlp.
 import { spawn, execFile, execFileSync } from 'child_process';
-import { existsSync, createReadStream, readdirSync } from 'fs';
+import { existsSync, createReadStream, createWriteStream, readdirSync } from 'fs';
 import { promises as fsp } from 'fs';
 import { Readable } from 'stream';
 import os from 'os';
@@ -286,7 +286,7 @@ export function sanitizeInputUrl(raw) {
 export function validateTargetUrl(raw) {
   const str = sanitizeInputUrl(raw);
   if (!str) return { ok: false, error: 'URL tidak boleh kosong.' };
-  if (str.length > 2048) return { ok: false, error: 'URL terlalu panjang.' };
+  if (str.length > 8192) return { ok: false, error: 'URL terlalu panjang.' };
   let u;
   try { u = new URL(str); } catch { return { ok: false, error: 'Format URL tidak valid. Contoh: https://www.tiktok.com/...' }; }
   if (!['http:', 'https:'].includes(u.protocol)) return { ok: false, error: 'URL harus diawali http:// atau https://' };
@@ -327,7 +327,12 @@ function runYtDlpJson(args, timeoutMs = YTDLP_TIMEOUT_MS, cookiesIdx = 0) {
     let stdout = '', stderr = '';
     child.stdout.on('data', (d) => { stdout += d; if (stdout.length > 12 * 1024 * 1024) child.kill(); });
     child.stderr.on('data', (d) => { stderr += d; });
-    child.on('error', (err) => resolve({ ok: false, status: 500, error: `yt-dlp tidak bisa dijalankan: ${err.message}` }));
+    child.on('error', (err) => {
+      if (err?.code === 'ENOENT' && XRINA_ENABLED) {
+        return resolve({ ok: false, status: 404, error: 'Media tidak ditemukan, akun private, atau link tidak valid.' });
+      }
+      resolve({ ok: false, status: 500, error: `yt-dlp tidak bisa dijalankan: ${err.message}` });
+    });
     child.on('close', (code) => {
       if (code !== 0) {
         const fr = friendlyYtDlpError(stderr);
@@ -365,15 +370,26 @@ async function probeMulti(url) {
 }
 
 function isTikTokUrl(url) {
-  return /(^|\.)(tiktok\.com|vt\.tiktok\.com)$/i.test(safeHost(url)) || /tiktok\.com\//i.test(url);
+  return /(^|\.)(tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)$/i.test(safeHost(url)) || /tiktok\.com\//i.test(url);
 }
 function isInstagramUrl(url) {
   const h = safeHost(url);
   return /(^|\.)(instagram\.com|instagr\.am|ig\.me)$/i.test(h) || /instagram\.com\//i.test(url);
 }
+function isYouTubeUrl(url) {
+  const h = safeHost(url);
+  return /(^|\.)(youtube\.com|youtu\.be|m\.youtube\.com|music\.youtube\.com)$/i.test(h) || /(youtube\.com|youtu\.be)\//i.test(url);
+}
+function isYouTubePlaylistOnlyUrl(url) {
+  return isYouTubeUrl(url) && /[?&]list=/i.test(url) && !/[?&]v=|youtu\.be\/|\/shorts\/|\/live\//i.test(url);
+}
 function isFacebookUrl(url) {
   const h = safeHost(url);
-  return /(^|\.)(facebook\.com|fb\.com|fb\.watch)$/i.test(h) || /facebook\.com\//i.test(url);
+  return /(^|\.)(facebook\.com|fb\.com|fb\.watch|m\.facebook\.com|web\.facebook\.com)$/i.test(h) || /(facebook\.com|fb\.watch|fb\.com)\//i.test(url);
+}
+function isTwitterUrl(url) {
+  const h = safeHost(url);
+  return /(^|\.)(x\.com|twitter\.com|mobile\.twitter\.com|t\.co|fxtwitter\.com|vxtwitter\.com)$/i.test(h) || /(x\.com|twitter\.com)\//i.test(url);
 }
 function safeHost(url) {
   try { return new URL(url).hostname.toLowerCase(); } catch { return ''; }
@@ -675,20 +691,37 @@ export async function extractMedia(rawUrl) {
   if (hit) return { ok: true, cached: true, ...hit.data };
   const direct = await tryDirectFile(url);
   if (direct) { await cacheSet(url, direct); return { ok: true, ...direct }; }
-  if (NEXA_FIRST && (isInstagramUrl(url) || isFacebookUrl(url))) {
-    const nx = await fetchNexa(url);
-    if (nx) {
-      const payload = { source: 'nexa', downloads: nx.downloads, info: nx.info, original_url: url };
-      payload.data = [...nx.downloads.video, ...nx.downloads.audio, ...nx.downloads.image];
-      await cacheSet(url, payload);
-      return { ok: true, ...payload };
-    }
-  }
   if (inflight.has(url)) {
     try { return await inflight.get(url); } catch { /* lanjut */ }
   }
 
   const job = (async () => {
+    // 0) Utama: API Xrina (apiii-xrina.my.id) untuk TikTok, Instagram, YouTube (+MP3), Facebook, Twitter/X
+    if (XRINA_ENABLED && !isYouTubePlaylistOnlyUrl(url)) {
+      const xr = await fetchXrina(url);
+      if (xr) {
+        const payload = {
+          source: xr.source || 'xrina',
+          downloads: xr.downloads,
+          data: [...xr.downloads.video, ...xr.downloads.audio, ...xr.downloads.image],
+          info: xr.info,
+          original_url: url,
+        };
+        await cacheSet(url, payload);
+        return { ok: true, ...payload };
+      }
+    }
+
+    if (NEXA_FIRST && (isInstagramUrl(url) || isFacebookUrl(url))) {
+      const nx = await fetchNexa(url);
+      if (nx) {
+        const payload = { source: 'nexa', downloads: nx.downloads, info: nx.info, original_url: url };
+        payload.data = [...nx.downloads.video, ...nx.downloads.audio, ...nx.downloads.image];
+        await cacheSet(url, payload);
+        return { ok: true, ...payload };
+      }
+    }
+
     // 1) Probe dulu: single atau multi (playlist/album/carousel)?
     let probe = await probeMulti(url);
     if (!probe.ok && probe._retryable) {
@@ -755,6 +788,15 @@ export async function extractMedia(rawUrl) {
     if (!info || !Array.isArray(info.formats) || !info.formats.length) {
       const single = await extractSingle(url);
       if (!single.ok) {
+        if (XRINA_ENABLED) {
+          const xrAio = await fetchXrinaAio(url);
+          if (xrAio) {
+            const payload = { source: xrAio.source || 'xrina-aio', downloads: xrAio.downloads, info: xrAio.info, original_url: url };
+            payload.data = [...xrAio.downloads.video, ...xrAio.downloads.audio, ...xrAio.downloads.image];
+            await cacheSet(url, payload);
+            return { ok: true, ...payload };
+          }
+        }
         if (isTikTokUrl(url)) {
           const fb = await fetchTikWmFallback(url);
           if (fb) {
@@ -788,6 +830,15 @@ export async function extractMedia(rawUrl) {
     const picked = pickDownloads(info);
     const downloads = { video: picked.video, audio: picked.audio, image: picked.image, subtitles: pickSubtitles(info) };
     if (!downloads.video.length && !downloads.audio.length && !downloads.image.length) {
+      if (XRINA_ENABLED) {
+        const xrAio = await fetchXrinaAio(url);
+        if (xrAio) {
+          const payload = { source: xrAio.source || 'xrina-aio', downloads: xrAio.downloads, info: xrAio.info, original_url: url };
+          payload.data = [...xrAio.downloads.video, ...xrAio.downloads.audio, ...xrAio.downloads.image];
+          await cacheSet(url, payload);
+          return { ok: true, ...payload };
+        }
+      }
       if (isTikTokUrl(url)) {
         const fb = await fetchTikWmFallback(url);
         if (fb) {
@@ -920,11 +971,604 @@ export async function searchVideos(q, max = 10) {
   q = String(q || '').trim().slice(0, 100);
   if (!q) return { ok: false, status: 400, error: 'Kata kunci pencarian kosong.' };
   max = Math.min(Math.max(parseInt(max) || 10, 1), 20);
+  if (XRINA_ENABLED) {
+    try {
+      const j = await xrinaFetchJson(`/search/ytsearch?q=${encodeURIComponent(q)}`, 30000);
+      if (j && j.status === true && Array.isArray(j.data) && j.data.length) {
+        const items = j.data.slice(0, max).map((e) => ({
+          title: e.title || 'Tanpa judul',
+          thumbnail: e.thumbnail || null,
+          duration: null,
+          duration_label: e.duration || '-',
+          url: e.url || (e.video_id ? `https://www.youtube.com/watch?v=${e.video_id}` : null),
+          channel: e.author || e.channel || null,
+        })).filter((i) => i.url);
+        if (items.length) return { ok: true, items };
+      }
+    } catch {}
+  }
   const r = await runYtDlpJson([...baseArgs(), '--flat-playlist', '--playlist-end', String(max), '--skip-download', '-J', `ytsearch${max}:${q}`], 90000);
   if (!r.ok) return r;
   const items = (r.info?.entries || []).map(mapFlatItem).filter((i) => i.url);
   if (!items.length) return { ok: false, status: 404, error: 'Tidak ada hasil untuk kata kunci itu.' };
   return { ok: true, items };
+}
+
+/* ============ API Utama Xrina (https://apiii-xrina.my.id) ============
+   1. TikTok    : GET /download/tt-dl2?url=...
+   2. Instagram : GET /download/instagram?url=...
+   3. YouTube   : GET /download/youtube-dl?url=...
+   4. YT MP3    : GET /download/ytmp3?url=...
+   5. Facebook  : GET /download/facebook?url=...
+   6. Twitter/X : GET /download/twitterdl?url=... */
+export const XRINA_API_BASE = (process.env.XRINA_API_BASE || 'https://apiii-xrina.my.id').replace(/\/$/, '');
+const XRINA_ENABLED = process.env.XRINA_ENABLED !== '0';
+
+async function xrinaFetchJson(endpointPath, timeoutMs = 45000) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${XRINA_API_BASE}${endpointPath}`, {
+        signal: ctrl.signal,
+        redirect: 'follow',
+        headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json' },
+      });
+      clearTimeout(t);
+      const j = await res.json().catch(() => null);
+      if (j && typeof j === 'object') return j;
+    } catch {
+      clearTimeout(t);
+    }
+    if (attempt === 0) await sleep(1500);
+  }
+  return null;
+}
+
+function isSnapinstaErrorUrl(u) {
+  try {
+    const parsed = new URL(u);
+    const tok = parsed.searchParams.get('token');
+    if (tok) {
+      const dec = Buffer.from(tok, 'base64').toString('utf8');
+      if (/snapinsta-app-error|promo\/snapinsta/i.test(dec)) return true;
+    }
+  } catch {}
+  return /snapinsta-app-error/i.test(String(u || ''));
+}
+
+// 1. TikTok: /download/tt-dl2?url=...
+export async function fetchXrinaTikTok(url) {
+  try {
+    const j = await xrinaFetchJson(`/download/tt-dl2?url=${encodeURIComponent(url)}`);
+    if (!j || j.status !== true || !j.data) return null;
+    const d = j.data;
+    const rawMedia = Array.isArray(d.media) ? d.media : (typeof d.media === 'string' ? [d.media] : []);
+    const validMedia = rawMedia.filter((u) => typeof u === 'string' && u.startsWith('http')).slice(0, 12);
+    const musicUrl = (typeof d.music === 'string' && d.music.startsWith('http')) ? d.music : null;
+    if (!validMedia.length && !musicUrl) return null;
+
+    const isPhotoMode = /image|photo|slide/i.test(String(d.type || ''));
+    const rawCover = d.thumbnail || d.cover || d.origin_cover || null;
+    const [mediaSizes, musicSize, oembedCover] = await Promise.all([
+      Promise.all(validMedia.map((u) => probeSize(u, 6000))),
+      musicUrl ? probeSize(musicUrl, 6000) : Promise.resolve(0),
+      rawCover ? Promise.resolve(null) : (async () => {
+        try {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 3500);
+          const r = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`, { signal: ctrl.signal, headers: { 'User-Agent': BROWSER_UA } });
+          clearTimeout(t);
+          if (!r.ok) return null;
+          const oj = await r.json();
+          return oj?.thumbnail_url || null;
+        } catch { return null; }
+      })(),
+    ]);
+
+    const video = [], audio = [], image = [];
+    const cover = rawCover || oembedCover || null;
+
+    validMedia.forEach((src, i) => {
+      const sz = mediaSizes[i] || null;
+      const looksImg = isPhotoMode || /\.(jpe?g|png|webp|gif)(\?|#|$)/i.test(src) || /mime_type=image/i.test(src);
+      if (looksImg) {
+        image.push({
+          type: 'image', url: src,
+          quality: `Foto ${i + 1} • No WM`,
+          extension: 'jpg',
+          filesize: sz, filesize_label: humanSize(sz),
+          thumbnail: src, has_audio: false,
+        });
+      } else {
+        video.push({
+          type: 'video', url: src,
+          quality: validMedia.length > 1 ? `HD ${i + 1} • No WM` : 'HD • No WM',
+          extension: 'mp4',
+          filesize: sz, filesize_label: humanSize(sz),
+          thumbnail: cover, has_audio: true,
+        });
+      }
+    });
+
+    if (musicUrl) {
+      audio.push({
+        type: 'audio', url: musicUrl,
+        quality: 'Original Sound (MP3)',
+        extension: 'mp3',
+        filesize: musicSize || null, filesize_label: humanSize(musicSize),
+        thumbnail: cover || image[0]?.url || null,
+        has_audio: true,
+      });
+    }
+
+    return {
+      source: 'xrina-tiktok',
+      downloads: { video, audio, image, subtitles: [] },
+      info: {
+        title: d.title || 'TikTok Media',
+        thumbnail: cover || image[0]?.url || null,
+        duration: d.duration || null,
+        duration_label: humanDuration(d.duration),
+        uploader: d.author?.nickname || d.author?.username || d.author?.unique_id || 'TikTok',
+        platform: 'TikTok',
+        webpage_url: url,
+      },
+    };
+  } catch { return null; }
+}
+
+// 2. Instagram: /download/instagram?url=...
+export async function fetchXrinaInstagram(url) {
+  try {
+    const j = await xrinaFetchJson(`/download/instagram?url=${encodeURIComponent(url)}`);
+    if (j && j.status === true && j.data) {
+      const d = j.data;
+      const rawList = Array.isArray(d.media) ? d.media : (Array.isArray(d) ? d : []);
+      const items = [];
+      const seen = new Set();
+      rawList.slice(0, 12).forEach((it, i) => {
+        const src = typeof it === 'string' ? it : (it?.url || it?.downloadUrl || it?.download_url);
+        if (!src || typeof src !== 'string' || !src.startsWith('http') || seen.has(src)) return;
+        if (isSnapinstaErrorUrl(src)) return;
+        seen.add(src);
+        let decUrl = '';
+        try {
+          const tok = new URL(src).searchParams.get('token');
+          if (tok) decUrl = Buffer.from(tok, 'base64').toString('utf8');
+        } catch {}
+        const ty = String(it?.type || (src.includes('type=jpg') || src.includes('type=image') ? 'image' : '')).toLowerCase();
+        const looksImg = /jpe?g|png|webp|gif|image|photo/.test(ty)
+          || /\.(jpe?g|png|webp|gif)(\?|#|$)/i.test(src)
+          || /\.(jpe?g|png|webp|gif)(\?|#|$)/i.test(decUrl);
+        items.push({
+          type: looksImg ? 'image' : 'video',
+          url: src,
+          quality: looksImg ? `Foto ${i + 1}` : (items.filter((x) => x.type === 'video').length === 0 ? 'HD' : `Video ${i + 1}`),
+          extension: looksImg ? 'jpg' : 'mp4',
+          has_audio: !looksImg,
+        });
+      });
+
+      if (items.length) {
+        const sizes = await Promise.all(items.map((m) => probeSize(m.url, 6000)));
+        const video = [], audio = [], image = [];
+        items.forEach((m, i) => {
+          const sz = sizes[i] || null;
+          const full = {
+            ...m,
+            filesize: sz, filesize_label: humanSize(sz),
+            thumbnail: m.type === 'image' ? m.url : (d.thumbnail || null),
+          };
+          (m.type === 'image' ? image : video).push(full);
+        });
+        return {
+          source: 'xrina-instagram',
+          downloads: { video, audio, image, subtitles: [] },
+          info: {
+            title: d.title || 'Instagram Media',
+            thumbnail: d.thumbnail || image[0]?.url || null,
+            duration: d.duration || null,
+            duration_label: humanDuration(d.duration),
+            uploader: d.owner || d.author || 'Instagram',
+            platform: 'Instagram',
+            webpage_url: url,
+          },
+        };
+      }
+    }
+    // Jika /download/instagram terkena limit snapinsta-app-error, gunakan /download/aio di apiii-xrina.my.id
+    return await fetchXrinaAio(url, 'Instagram');
+  } catch { return null; }
+}
+
+// 4. YouTube MP3: /download/ytmp3?url=...
+export async function fetchXrinaYouTubeMp3(url) {
+  try {
+    const j = await xrinaFetchJson(`/download/ytmp3?url=${encodeURIComponent(url)}`);
+    if (!j || j.status !== true || !j.data) return null;
+    const d = j.data;
+    const audioUrl = d.audio_url || d.url || d.download_url;
+    if (!audioUrl || typeof audioUrl !== 'string' || !audioUrl.startsWith('http')) return null;
+    const sz = await probeSize(audioUrl, 6000);
+    return {
+      title: d.title || 'YouTube Audio',
+      audio_url: audioUrl,
+      filesize: sz || null,
+      filesize_label: humanSize(sz),
+    };
+  } catch { return null; }
+}
+
+// 3. YouTube Video (+ 4. ytdl mp3): /download/youtube-dl?url=... & /download/ytmp3?url=...
+export async function fetchXrinaYouTube(url) {
+  try {
+    const [ytJson, mp3Res] = await Promise.all([
+      xrinaFetchJson(`/download/youtube-dl?url=${encodeURIComponent(url)}`),
+      fetchXrinaYouTubeMp3(url),
+    ]);
+
+    const inner = ytJson?.data?.data || ytJson?.data || {};
+    const medias = Array.isArray(inner.medias) ? inner.medias : [];
+    const title = inner.title || mp3Res?.title || 'YouTube Video';
+    const thumb = inner.imageUrl || inner.thumbnail || null;
+    const dur = parseInt(inner.duration, 10) || null;
+
+    const progVideos = [];
+    const silentVideos = [];
+    const rawAudios = [];
+    const seenVideoRes = new Set();
+    const seenAudioKey = new Set();
+
+    for (const m of medias) {
+      const src = m?.url;
+      if (!src || typeof src !== 'string' || !src.startsWith('http')) continue;
+      let itag = '', mime = '', hasAitags = false;
+      try {
+        const u = new URL(src);
+        itag = u.searchParams.get('itag') || '';
+        mime = decodeURIComponent(u.searchParams.get('mime') || '').toLowerCase();
+        hasAitags = !!u.searchParams.get('aitags');
+      } catch {}
+
+      const fmtStr = String(m.format || m.quality || '').trim();
+      const extMatch = fmtStr.match(/\[\.([a-z0-9]+)\]/i);
+      const ext = (extMatch && extMatch[1].toLowerCase())
+        || (mime.includes('webm') ? (mime.startsWith('audio/') ? 'weba' : 'webm') : (mime.startsWith('audio/') ? 'm4a' : 'mp4'));
+      const resMatch = fmtStr.match(/(\d{3,4}p|[248]K)/i);
+      const resLabel = resMatch ? resMatch[1] : (itag === '18' ? '360p' : itag === '22' ? '720p' : '');
+      const fsize = +m.fileSize || null;
+
+      const isAudio = mime.startsWith('audio/') || ['m4a', 'mp3', 'weba', 'opus', 'ogg', 'aac'].includes(ext) || ['140', '251', '250', '249', '139'].includes(itag);
+      if (isAudio) {
+        const aKey = `${itag || ext}|${fsize || ''}`;
+        if (seenAudioKey.has(aKey)) continue;
+        seenAudioKey.add(aKey);
+        rawAudios.push({
+          type: 'audio', url: src,
+          quality: `Audio (${ext.toUpperCase()})`,
+          extension: ext,
+          filesize: fsize, filesize_label: humanSize(fsize),
+          thumbnail: thumb, has_audio: true,
+        });
+        continue;
+      }
+
+      // Progressive video (itag 18/22 atau tanpa aitags) memiliki audio langsung
+      const hasAudio = ['18', '22', '37', '38', '43'].includes(itag) || (!hasAitags && mime.startsWith('video/'));
+      const vKey = `${resLabel || fmtStr}|${hasAudio ? 'A' : 'S'}`;
+      if (seenVideoRes.has(vKey)) continue;
+      seenVideoRes.add(vKey);
+
+      if (hasAudio) {
+        progVideos.push({
+          type: 'video', url: src,
+          quality: resLabel || '360p',
+          extension: ext,
+          filesize: fsize, filesize_label: humanSize(fsize),
+          thumbnail: thumb, has_audio: true,
+        });
+      } else {
+        silentVideos.push({
+          type: 'video', url: src,
+          quality: `${resLabel || 'HD'} (tanpa suara)`,
+          extension: ext,
+          filesize: fsize, filesize_label: humanSize(fsize),
+          thumbnail: thumb, has_audio: false,
+          _h: resLabel === '4K' ? 2160 : resLabel === '2K' ? 1440 : (parseInt(resLabel, 10) || 0),
+        });
+      }
+    }
+
+    await Promise.all(progVideos.map(async (pv) => {
+      if (!pv.filesize) {
+        const sz = await probeSize(pv.url, 5000);
+        if (sz) {
+          pv.filesize = sz;
+          pv.filesize_label = humanSize(sz);
+        }
+      }
+    }));
+
+    const video = [...progVideos, ...silentVideos.slice(0, 6)];
+    const audio = [];
+    if (mp3Res?.audio_url) {
+      audio.push({
+        type: 'audio', url: mp3Res.audio_url,
+        quality: 'MP3 • 128kbps',
+        extension: 'mp3',
+        filesize: mp3Res.filesize, filesize_label: mp3Res.filesize_label,
+        thumbnail: thumb, has_audio: true,
+      });
+    }
+    audio.push(...rawAudios.slice(0, 2));
+
+    if (!video.length && !audio.length) return null;
+    const maxSplit = silentVideos.length ? Math.max(...silentVideos.map((v) => v._h || 0)) : 0;
+
+    return {
+      source: 'xrina-youtube',
+      downloads: { video, audio, image: [], subtitles: [] },
+      info: {
+        title,
+        thumbnail: thumb,
+        duration: dur,
+        duration_label: humanDuration(dur),
+        uploader: inner.author || inner.channel || 'YouTube',
+        platform: 'YouTube',
+        webpage_url: url,
+        has_split: maxSplit > 0,
+        merge_heights: maxSplit > 0 ? [...new Set([720, 1080].filter((h) => maxSplit >= h))].sort((a, b) => b - a) : [],
+      },
+    };
+  } catch { return null; }
+}
+
+// 5. Facebook: /download/facebook?url=...
+export async function fetchXrinaFacebook(url) {
+  try {
+    const j = await xrinaFetchJson(`/download/facebook?url=${encodeURIComponent(url)}`);
+    if (!j || j.status !== true || !j.data) return null;
+    const d = j.data;
+    const rawItems = [];
+    if (typeof d.hd === 'string' && d.hd.startsWith('http')) {
+      rawItems.push({ type: 'video', url: d.hd, quality: 'HD 720p', extension: 'mp4', has_audio: true });
+    }
+    if (typeof d.sd === 'string' && d.sd.startsWith('http') && d.sd !== d.hd) {
+      rawItems.push({ type: 'video', url: d.sd, quality: 'SD 360p', extension: 'mp4', has_audio: true });
+    }
+    if (typeof d.mp3 === 'string' && d.mp3.startsWith('http')) {
+      rawItems.push({ type: 'audio', url: d.mp3, quality: 'Audio MP3', extension: 'mp3', has_audio: true });
+    }
+    if (!rawItems.length && Array.isArray(d)) {
+      d.slice(0, 6).forEach((it, i) => {
+        if (it?.url && String(it.url).startsWith('http')) {
+          rawItems.push({ type: 'video', url: it.url, quality: it.quality || `Video ${i + 1}`, extension: 'mp4', has_audio: true });
+        }
+      });
+    }
+    if (!rawItems.length) return null;
+
+    const sizes = await Promise.all(rawItems.map((m) => probeSize(m.url, 6000)));
+    const video = [], audio = [], image = [];
+    const thumb = (typeof d.thumbnail === 'string' && d.thumbnail.startsWith('http')) ? d.thumbnail : null;
+    rawItems.forEach((m, i) => {
+      const sz = sizes[i] || null;
+      const full = { ...m, filesize: sz, filesize_label: humanSize(sz), thumbnail: thumb };
+      (m.type === 'audio' ? audio : video).push(full);
+    });
+
+    const cleanTitle = (d.title && d.title !== 'Facebook...') ? d.title : 'Facebook Video';
+    return {
+      source: 'xrina-facebook',
+      downloads: { video, audio, image, subtitles: [] },
+      info: {
+        title: cleanTitle,
+        thumbnail: thumb,
+        duration: d.duration || null,
+        duration_label: humanDuration(d.duration),
+        uploader: d.author || d.uploader || 'Facebook',
+        platform: 'Facebook',
+        webpage_url: url,
+      },
+    };
+  } catch { return null; }
+}
+
+// 6. Twitter / X: /download/twitterdl?url=...
+export async function fetchXrinaTwitter(url) {
+  try {
+    const idMatch = String(url).match(/\/status\/(\d+)/i);
+    const tweetId = idMatch ? idMatch[1] : null;
+    const [j, fxMeta] = await Promise.all([
+      xrinaFetchJson(`/download/twitterdl?url=${encodeURIComponent(url)}`),
+      tweetId ? (async () => {
+        try {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 4500);
+          const r = await fetch(`https://api.fxtwitter.com/i/status/${tweetId}`, { signal: ctrl.signal, headers: { 'User-Agent': BROWSER_UA } });
+          clearTimeout(t);
+          if (!r.ok) return null;
+          const fj = await r.json();
+          return fj?.tweet || null;
+        } catch { return null; }
+      })() : Promise.resolve(null),
+    ]);
+
+    const d = (j && j.status === true && j.data) ? j.data : {};
+    const results = Array.isArray(d.results) ? d.results : (Array.isArray(d.media) ? d.media : []);
+
+    const items = [];
+    const seen = new Set();
+    results.slice(0, 10).forEach((it, i) => {
+      const src = typeof it === 'string' ? it : (it?.downloadLink || it?.url || it?.download_url);
+      if (!src || typeof src !== 'string' || !src.startsWith('http') || seen.has(src)) return;
+      seen.add(src);
+      const ty = String(it?.type || '').toLowerCase();
+      const looksImg = /jpe?g|png|webp|gif|image|photo/.test(ty) || /\.(jpe?g|png|webp|gif)(\?|#|$)/i.test(src);
+      items.push({
+        type: looksImg ? 'image' : 'video',
+        url: src,
+        quality: it?.quality || (looksImg ? `Foto ${i + 1}` : 'HD'),
+        extension: looksImg ? 'jpg' : 'mp4',
+        has_audio: !looksImg,
+      });
+    });
+
+    // Jika /download/twitterdl kosong untuk tweet foto, ambil dari fxtwitter
+    if (!items.length && fxMeta?.media) {
+      const fxVids = Array.isArray(fxMeta.media.videos) ? fxMeta.media.videos : [];
+      const fxPhotos = Array.isArray(fxMeta.media.photos) ? fxMeta.media.photos : [];
+      fxVids.forEach((v) => {
+        if (v?.url && !seen.has(v.url)) {
+          seen.add(v.url);
+          items.push({ type: 'video', url: v.url, quality: v.width && v.height ? `${v.width}x${v.height}` : 'HD', extension: 'mp4', has_audio: true });
+        }
+      });
+      fxPhotos.forEach((p, i) => {
+        if (p?.url && !seen.has(p.url)) {
+          seen.add(p.url);
+          items.push({ type: 'image', url: p.url, quality: `Foto ${i + 1}`, extension: 'jpg', has_audio: false });
+        }
+      });
+    }
+    if (!items.length) return null;
+
+    const fxThumb = fxMeta?.media?.videos?.[0]?.thumbnail_url || fxMeta?.media?.photos?.[0]?.url || null;
+    const fxDur = fxMeta?.media?.videos?.[0]?.duration ? Math.round(fxMeta.media.videos[0].duration) : null;
+    const thumb = d.thumbnail || fxThumb || null;
+
+    const sizes = await Promise.all(items.map((m) => probeSize(m.url, 6000)));
+    const video = [], audio = [], image = [];
+    items.forEach((m, i) => {
+      const sz = sizes[i] || null;
+      const full = {
+        ...m,
+        filesize: sz, filesize_label: humanSize(sz),
+        thumbnail: m.type === 'image' ? m.url : thumb,
+      };
+      (m.type === 'image' ? image : video).push(full);
+    });
+
+    const userMatch = String(url).match(/(?:x\.com|twitter\.com)\/([A-Za-z0-9_]+)\/status\//i);
+    const uploader = d.author
+      || (fxMeta?.author?.name ? `${fxMeta.author.name} (@${fxMeta.author.screen_name || ''})` : null)
+      || (userMatch ? `@${userMatch[1]}` : 'X (Twitter)');
+    const dur = d.duration || fxDur || null;
+    const cleanText = fxMeta?.text ? String(fxMeta.text).replace(/\s+/g, ' ').trim() : '';
+
+    return {
+      source: 'xrina-twitter',
+      downloads: { video, audio, image, subtitles: [] },
+      info: {
+        title: d.title || cleanText || `X (Twitter) Video ${userMatch ? '@' + userMatch[1] : ''}`.trim(),
+        thumbnail: thumb || image[0]?.url || null,
+        duration: dur,
+        duration_label: humanDuration(dur),
+        uploader,
+        platform: 'X (Twitter)',
+        webpage_url: url,
+      },
+    };
+  } catch { return null; }
+}
+
+// Fallback All-in-One via apiii-xrina.my.id (/download/aio & /download/aio2)
+export async function fetchXrinaAio(url, forcedPlatform = null) {
+  try {
+    const j = await xrinaFetchJson(`/download/aio?url=${encodeURIComponent(url)}`);
+    if (j && j.status === true && j.data) {
+      const d = j.data;
+      const medias = Array.isArray(d.medias) ? d.medias : [];
+      const items = [];
+      const seen = new Set();
+      medias.slice(0, 10).forEach((m, i) => {
+        const src = m?.url;
+        if (!src || typeof src !== 'string' || !src.startsWith('http') || seen.has(src)) return;
+        seen.add(src);
+        const ty = String(m.type || '').toLowerCase();
+        const ext = String(m.ext || '').toLowerCase();
+        const lbl = String(m.label || m.quality || '').trim();
+        const isAudio = ty === 'audio' || /audio|mp3/i.test(lbl) || ['mp3', 'm4a', 'ogg', 'opus'].includes(ext) || /sf=mp3/i.test(src);
+        const isImg = !isAudio && (ty === 'image' || ty === 'photo' || ['jpg', 'jpeg', 'png', 'webp'].includes(ext));
+        items.push({
+          type: isAudio ? 'audio' : isImg ? 'image' : 'video',
+          url: src,
+          quality: lbl.replace(/^Download\s*/i, '').replace(/^\((.*)\)$/, '$1').trim() || (isAudio ? 'Audio MP3' : isImg ? `Foto ${i + 1}` : 'HD'),
+          extension: isAudio ? 'mp3' : isImg ? 'jpg' : (ext || 'mp4'),
+          has_audio: !isImg,
+        });
+      });
+      if (items.length) {
+        const sizes = await Promise.all(items.map((m) => probeSize(m.url, 6000)));
+        const video = [], audio = [], image = [];
+        const thumb = (typeof d.thumbnail === 'string' && d.thumbnail.startsWith('http')) ? d.thumbnail : null;
+        items.forEach((m, i) => {
+          const sz = sizes[i] || null;
+          const full = { ...m, filesize: sz, filesize_label: humanSize(sz), thumbnail: m.type === 'image' ? m.url : thumb };
+          if (m.type === 'audio') audio.push(full);
+          else if (m.type === 'image') image.push(full);
+          else video.push(full);
+        });
+        return {
+          source: 'xrina-aio',
+          downloads: { video, audio, image, subtitles: [] },
+          info: {
+            title: d.title || 'Media',
+            thumbnail: thumb || image[0]?.url || null,
+            duration: d.duration || null,
+            duration_label: humanDuration(d.duration),
+            uploader: d.owner || d.author || null,
+            platform: forcedPlatform || d.platform || platformFromUrl(url),
+            webpage_url: url,
+          },
+        };
+      }
+    }
+  } catch {}
+  return null;
+}
+
+// Dispatcher utama ke 6 endpoint apiii-xrina.my.id
+export async function fetchXrina(url) {
+  if (!XRINA_ENABLED) return null;
+  if (isTikTokUrl(url)) return fetchXrinaTikTok(url);
+  if (isInstagramUrl(url)) return fetchXrinaInstagram(url);
+  if (isYouTubeUrl(url) && !isYouTubePlaylistOnlyUrl(url)) return fetchXrinaYouTube(url);
+  if (isFacebookUrl(url)) return fetchXrinaFacebook(url);
+  if (isTwitterUrl(url)) return fetchXrinaTwitter(url);
+  return fetchXrinaAio(url);
+}
+
+// Ambil URL MP3 langsung via Xrina API (utamakan /download/ytmp3 untuk YouTube)
+export async function resolveXrinaMp3Url(url) {
+  if (!XRINA_ENABLED) return null;
+  if (isYouTubeUrl(url)) {
+    const ytMp3 = await fetchXrinaYouTubeMp3(url);
+    if (ytMp3?.audio_url) return ytMp3;
+  }
+  const xr = await fetchXrina(url);
+  if (xr?.downloads?.audio?.length) {
+    return {
+      title: xr.info?.title || 'audio',
+      audio_url: xr.downloads.audio[0].url,
+      filesize: xr.downloads.audio[0].filesize || null,
+      filesize_label: xr.downloads.audio[0].filesize_label || 'Unknown',
+    };
+  }
+  return null;
+}
+
+// Ambil URL MP4 HD YouTube via Xrina API (/download/ytmp4)
+export async function resolveXrinaYtMp4Url(url, height = 720) {
+  if (!XRINA_ENABLED || !isYouTubeUrl(url)) return null;
+  const q = [144, 240, 360, 480, 720, 1080].includes(+height) ? String(+height) : '720';
+  const j = await xrinaFetchJson(`/download/ytmp4?url=${encodeURIComponent(url)}&quality=${q}`);
+  const dlUrl = j?.data?.download_url || j?.data?.url;
+  if (j?.status === true && dlUrl && String(dlUrl).startsWith('http')) {
+    return { title: j.data.title || 'video', video_url: dlUrl, quality: `${q}p` };
+  }
+  return null;
 }
 
 // Fallback via instance Cobalt pribadi (env COBALT_API + opsional COBALT_KEY).
@@ -1117,16 +1761,19 @@ async function cleanupJobFiles(id) {
 
 export async function createJob({ kind, url, height, start, end, filename }) {
   if (!['mp3', 'merge', 'trim'].includes(kind)) return { ok: false, status: 400, error: 'Jenis job tidak dikenal.' };
-  if (!HAS_FFMPEG) return { ok: false, status: 501, error: 'Fitur konversi butuh ffmpeg yang tidak tersedia di server ini.' };
   const v = validateTargetUrl(url);
   if (!v.ok) return { ok: false, status: 400, error: v.error };
+  const canUseXrina = XRINA_ENABLED && (kind === 'mp3' || (kind === 'merge' && isYouTubeUrl(v.url)));
+  if (!HAS_FFMPEG && !canUseXrina) {
+    return { ok: false, status: 501, error: 'Fitur konversi ini butuh ffmpeg yang tidak tersedia di server ini.' };
+  }
   const h = [360, 480, 720, 1080].includes(+height) ? +height : 720;
   const s = +start || 0, e = +end || 0;
   if (kind === 'trim') {
     if (!(s >= 0 && e > s)) return { ok: false, status: 400, error: 'Waktu trim tidak valid (butuh 0 <= mulai < selesai).' };
     if (e - s > 600) return { ok: false, status: 400, error: 'Hasil trim maksimal 10 menit.' };
   }
-  const dur = await probeDuration(v.url);
+  const dur = HAS_FFMPEG ? await probeDuration(v.url) : null;
   if (dur && dur > (DUR_CAP[kind] || 1800)) {
     return { ok: false, status: 400, error: `Video ${humanDuration(dur)} melebihi batas ${humanDuration(DUR_CAP[kind])} untuk ${kind === 'mp3' ? 'MP3' : kind === 'trim' ? 'trim' : 'HD'}.` };
   }
@@ -1202,6 +1849,56 @@ function finishJobFile(j, id, contentType, ext) {
   })();
 }
 
+async function downloadUrlToFile(j, targetUrl, destPath) {
+  j.phase = 'Mengunduh...';
+  j.progress = Math.max(j.progress, 20);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 300000);
+  try {
+    const res = await fetch(targetUrl, {
+      signal: ctrl.signal,
+      redirect: 'follow',
+      headers: { 'User-Agent': BROWSER_UA, Referer: 'https://www.google.com/', Accept: '*/*' },
+    });
+    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+    const total = +res.headers.get('content-length') || 0;
+    let received = 0;
+    const t0 = Date.now();
+    const out = createWriteStream(destPath);
+    const reader = res.body.getReader();
+    while (true) {
+      if (j.status === 'cancelled') {
+        try { await reader.cancel(); } catch {}
+        out.destroy();
+        throw new Error('cancelled');
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (!out.write(Buffer.from(value))) {
+        await new Promise((r) => out.once('drain', r));
+      }
+      const elapsedSec = Math.max(0.1, (Date.now() - t0) / 1000);
+      const bps = received / elapsedSec;
+      j.speed = `${humanSize(bps)}/s`;
+      if (total > 0) {
+        j.progress = Math.min(98, 20 + Math.round((received / total) * 78));
+        const remSec = Math.max(0, Math.round((total - received) / Math.max(1, bps)));
+        j.eta = `${remSec}s`;
+      } else {
+        j.progress = Math.min(95, j.progress + 5);
+      }
+    }
+    await new Promise((resolve, reject) => {
+      out.end();
+      out.on('finish', resolve);
+      out.on('error', reject);
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function runJob(j) {
   j.status = 'working';
   runningCount++;
@@ -1209,12 +1906,47 @@ async function runJob(j) {
   try {
     if (j.kind === 'trim') {
       await runTrim(j, outTpl);
+    } else if (j.kind === 'mp3') {
+      let handledByXrina = false;
+      if (XRINA_ENABLED) {
+        j.phase = 'Mengambil MP3 via API...';
+        j.progress = 10;
+        const mp3Info = await resolveXrinaMp3Url(j.url);
+        if (mp3Info?.audio_url) {
+          if ((!j.filename || j.filename === 'audio') && mp3Info.title) {
+            j.filename = sanitizeFilename(mp3Info.title, 'audio');
+          }
+          const outFp = path.join(TMP_DIR, `${j.id}__out.mp3`);
+          await downloadUrlToFile(j, mp3Info.audio_url, outFp);
+          await finishJobFile(j, j.id, 'audio/mpeg', 'mp3');
+          handledByXrina = true;
+        }
+      }
+      if (!handledByXrina) {
+        if (!HAS_FFMPEG) throw new Error('Gagal mengambil MP3 dari API dan ffmpeg tidak tersedia.');
+        const args = ['-f', 'ba/b', '-x', '--audio-format', 'mp3', '--audio-quality', '192K'];
+        await spawnYtDlp(j, [...cookieArgs(), ...proxyArgs(), ...args, '--ffmpeg-location', FFMPEG_BIN, '--no-playlist', '--no-warnings', '--no-cache-dir', '--progress', '--newline', '--socket-timeout', '20', '--retries', '2', '-o', outTpl, j.url], 1, 0);
+        await finishJobFile(j, j.id, 'audio/mpeg', 'mp3');
+      }
     } else {
-      const args = j.kind === 'mp3'
-        ? ['-f', 'ba/b', '-x', '--audio-format', 'mp3', '--audio-quality', '192K']
-        : ['-f', `bv[height<=${j.height}][vcodec^=avc]+ba[acodec^=mp4a]/bv[height<=${j.height}]+ba/b[height<=${j.height}]/bv*+ba/b`, '--merge-output-format', 'mp4'];
-      await spawnYtDlp(j, [...cookieArgs(), ...proxyArgs(), ...args, '--ffmpeg-location', FFMPEG_BIN, '--no-playlist', '--no-warnings', '--no-cache-dir', '--progress', '--newline', '--socket-timeout', '20', '--retries', '2', '-o', outTpl, j.url], 1, 0);
-      await finishJobFile(j, j.id, j.kind === 'mp3' ? 'audio/mpeg' : 'video/mp4', j.kind === 'mp3' ? 'mp3' : 'mp4');
+      let handledByXrina = false;
+      if (XRINA_ENABLED && (!HAS_FFMPEG || isYouTubeUrl(j.url))) {
+        j.phase = `Mengambil HD ${j.height}p via API...`;
+        j.progress = 10;
+        const mp4Info = await resolveXrinaYtMp4Url(j.url, j.height);
+        if (mp4Info?.video_url) {
+          const outFp = path.join(TMP_DIR, `${j.id}__out.mp4`);
+          await downloadUrlToFile(j, mp4Info.video_url, outFp);
+          await finishJobFile(j, j.id, 'video/mp4', 'mp4');
+          handledByXrina = true;
+        }
+      }
+      if (!handledByXrina) {
+        if (!HAS_FFMPEG) throw new Error('Fitur merge HD butuh ffmpeg di server ini.');
+        const args = ['-f', `bv[height<=${j.height}][vcodec^=avc]+ba[acodec^=mp4a]/bv[height<=${j.height}]+ba/b[height<=${j.height}]/bv*+ba/b`, '--merge-output-format', 'mp4'];
+        await spawnYtDlp(j, [...cookieArgs(), ...proxyArgs(), ...args, '--ffmpeg-location', FFMPEG_BIN, '--no-playlist', '--no-warnings', '--no-cache-dir', '--progress', '--newline', '--socket-timeout', '20', '--retries', '2', '-o', outTpl, j.url], 1, 0);
+        await finishJobFile(j, j.id, 'video/mp4', 'mp4');
+      }
     }
     j.status = 'done';
     j.progress = 100;
@@ -1339,7 +2071,9 @@ export function envConfig() {
     umamiUrl: process.env.UMAMI_URL || null,
     umamiId: process.env.UMAMI_WEBSITE_ID || null,
     turnstileSite: process.env.TURNSTILE_SITE_KEY || null,
-    trim: HAS_FFMPEG, mp3: HAS_FFMPEG, merge: HAS_FFMPEG,
+    trim: HAS_FFMPEG,
+    mp3: HAS_FFMPEG || XRINA_ENABLED,
+    merge: HAS_FFMPEG || XRINA_ENABLED,
     search: true, batch: true, maxBatch: 10,
     cookies: HAS_COOKIES,
     runtime: process.env.VERCEL ? 'vercel' : 'vps',
@@ -1492,7 +2226,8 @@ export function getHealth() {
   return new Promise((resolve) => {
     execFile(YTDLP_BIN, ['--version'], { timeout: 15000 }, (e1, v1) => {
       resolve({
-        ok: !e1,
+        ok: !e1 || XRINA_ENABLED,
+        xrina: XRINA_ENABLED ? XRINA_API_BASE : null,
         ytdlp: e1 ? null : String(v1).trim(),
         ytdlpUpdated: lastYtUpdateResult,
         ffmpeg: FFMPEG_VER,
@@ -1521,14 +2256,16 @@ export async function proxyDownload(req, res) {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 120000);
+    const upHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      Referer: 'https://www.google.com/',
+      Accept: '*/*',
+    };
+    if (req.headers?.range) upHeaders.Range = req.headers.range;
     const up = await fetch(v.url, {
       signal: ctrl.signal,
       redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        Referer: 'https://www.google.com/',
-        Accept: '*/*',
-      },
+      headers: upHeaders,
     });
     clearTimeout(timer);
     if (!up.ok || !up.body) {
@@ -1536,11 +2273,17 @@ export async function proxyDownload(req, res) {
       if (up.status === 404) return res.status(502).json({ success: false, error: 'File sumber sudah tidak tersedia (404).' });
       return res.status(502).json({ success: false, error: 'Gagal mengambil file dari server sumber.' });
     }
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    const isInline = req.query?.inline === '1';
+    if (up.status === 206) res.status(206);
+    res.setHeader('Content-Disposition', `${isInline ? 'inline' : 'attachment'}; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
     const ct = up.headers.get('content-type');
     if (ct) res.setHeader('Content-Type', ct);
     const cl = up.headers.get('content-length');
     if (cl) res.setHeader('Content-Length', cl);
+    const cr = up.headers.get('content-range');
+    if (cr) res.setHeader('Content-Range', cr);
+    const ar = up.headers.get('accept-ranges');
+    if (ar) res.setHeader('Accept-Ranges', ar);
     const stream = Readable.fromWeb(up.body);
     stream.on('error', () => { try { res.end(); } catch {} });
     if (typeof req.on === 'function') req.on('close', () => { try { stream.destroy(); } catch {} });
@@ -1579,11 +2322,56 @@ async function cleanupJob(id) {
 
 export async function convertToFile({ title, contentType, ext, ytdlpArgs, timeoutMs, req, res }) {
   if (!(await apiRateLimit(req, res))) return;
+  const v = validateTargetUrl(req.query?.url);
+  if (!v.ok) return res.status(400).json({ success: false, error: v.error });
+
+  // Utamakan Xrina API (apiii-xrina.my.id) untuk MP3 (/download/ytmp3 dll.) & YouTube HD (/download/ytmp4)
+  if (XRINA_ENABLED) {
+    try {
+      let directUrl = null;
+      let resolvedTitle = req.query?.filename || title;
+      if (ext === 'mp3') {
+        const mp3Res = await resolveXrinaMp3Url(v.url);
+        if (mp3Res?.audio_url) {
+          directUrl = mp3Res.audio_url;
+          if (!req.query?.filename && mp3Res.title) resolvedTitle = mp3Res.title;
+        }
+      } else if (ext === 'mp4' && isYouTubeUrl(v.url)) {
+        const h = [360, 480, 720, 1080].includes(+req.query?.height) ? +req.query.height : 720;
+        const mp4Res = await resolveXrinaYtMp4Url(v.url, h);
+        if (mp4Res?.video_url) {
+          directUrl = mp4Res.video_url;
+          if (!req.query?.filename && mp4Res.title) resolvedTitle = mp4Res.title;
+        }
+      }
+      if (directUrl) {
+        const fname = sanitizeFilename(resolvedTitle, 'media') + `.${ext}`;
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 120000);
+        const up = await fetch(directUrl, {
+          signal: ctrl.signal,
+          redirect: 'follow',
+          headers: { 'User-Agent': BROWSER_UA, Referer: 'https://www.google.com/', Accept: '*/*' },
+        });
+        clearTimeout(timer);
+        if (up.ok && up.body) {
+          res.setHeader('Content-Type', contentType);
+          const cl = up.headers.get('content-length');
+          if (cl) res.setHeader('Content-Length', cl);
+          res.setHeader('Content-Disposition', `attachment; filename="${fname}"; filename*=UTF-8''${encodeURIComponent(fname)}`);
+          const stream = Readable.fromWeb(up.body);
+          stream.on('error', () => { try { res.end(); } catch {} });
+          if (typeof req.on === 'function') req.on('close', () => { try { stream.destroy(); } catch {} });
+          stream.pipe(res);
+          return;
+        }
+      }
+    } catch {}
+  }
+
   if (!HAS_FFMPEG) {
     return res.status(501).json({ success: false, error: 'Fitur konversi butuh ffmpeg yang tidak tersedia di server ini. Deploy ke VPS/server penuh untuk MP3 & HD.' });
   }
-  const v = validateTargetUrl(req.query?.url);
-  if (!v.ok) return res.status(400).json({ success: false, error: v.error });
 
   const filename = sanitizeFilename(req.query?.filename || title, 'media') + `.${ext}`;
   const id = crypto.randomBytes(8).toString('hex');

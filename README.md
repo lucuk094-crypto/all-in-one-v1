@@ -106,28 +106,26 @@ postingan akun tertentu**. Solusinya: pasang `cookies.txt` dari akun IG yang log
   login muncul lagi.
 - **Jangan commit `cookies.txt` ke Git** (sudah di `.gitignore`) — itu setara password.
 
-## API Nexa (fallback otomatis khusus Instagram & Facebook)
+## API Xrina (`https://apiii-xrina.my.id`) — Engine Utama
 
-Selain yt-dlp, link IG/FB juga didukung API pihak ketiga
-`https://api.nexadev.my.id` (`/api/ig?url=...` dan `/api/fb?url=...`):
+Ekstraksi media kini mengutamakan endpoint resmi **`https://apiii-xrina.my.id`**:
 
-- **Default:** yt-dlp dulu (hasil lebih kaya: judul, thumbnail, multi-kualitas,
-  subtitle). Kalau yt-dlp gagal (login wall, rate-limit, varian link aneh),
-  otomatis dicoba via Nexa (`source: nexa-fallback`). Kalau Nexa sedang
-  gangguan, error yt-dlp yang asli tetap dikembalikan.
-- **Catatan jujur:** Nexa butuh header User-Agent browser (sudah ditangani
-  kode), tidak mengembalikan judul/thumbnail, dan kadang flaky (teramati:
-  error 520/403 dan `Gagal terhubung ke server API Facebook` yang sembuh
-  sendiri saat dicoba ulang). Konten private/unavailable tetap gagal di
-  kedua jalur.
+1. **TikTok**: `https://apiii-xrina.my.id/download/tt-dl2?url=<encoded_url>` (`source: xrina-tiktok`)
+2. **Instagram**: `https://apiii-xrina.my.id/download/instagram?url=<encoded_url>` (`source: xrina-instagram`, dengan auto-fallback `/download/aio` & `/download/aio2`)
+3. **YouTube**: `https://apiii-xrina.my.id/download/youtube-dl?url=<encoded_url>` (`source: xrina-youtube`)
+4. **YouTube MP3 (`ytdl mp3`)**: `https://apiii-xrina.my.id/download/ytmp3?url=<encoded_url>` (terintegrasi langsung pada daftar format audio YouTube, `/api/job` kind `mp3`, dan `/api/mp3`)
+5. **Facebook**: `https://apiii-xrina.my.id/download/facebook?url=<encoded_url>` (`source: xrina-facebook`)
+6. **Twitter / X**: `https://apiii-xrina.my.id/download/twitterdl?url=<encoded_url>` (`source: xrina-twitter`)
 
 **Env (opsional):**
 
 | Env | Default | Fungsi |
 |---|---|---|
-| `NEXA_ENABLED` | `1` | Set `0` untuk mematikan jalur Nexa |
-| `NEXA_FIRST` | `0` | Set `1` untuk mencoba Nexa DULUAN utk link IG/FB |
-| `NEXA_API_BASE` | `https://api.nexadev.my.id` | Ganti base URL API bila perlu |
+| `XRINA_ENABLED` | `1` | Set `0` untuk mematikan jalur `apiii-xrina.my.id` |
+| `XRINA_API_BASE` | `https://apiii-xrina.my.id` | Base URL API Xrina |
+| `NEXA_ENABLED` | `1` | Set `0` untuk mematikan jalur fallback Nexa |
+| `NEXA_FIRST` | `0` | Set `1` untuk mencoba Nexa lebih awal pada IG/FB |
+| `NEXA_API_BASE` | `https://api.nexadev.my.id` | Base URL fallback Nexa |
 
 ## Operasional IG/FB full-support (VPS)
 

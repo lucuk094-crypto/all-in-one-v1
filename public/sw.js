@@ -1,5 +1,5 @@
 // Service Worker — cache aset statis, network untuk API
-const CACHE = 'van313-v4';
+const CACHE = 'ultra-dl-v5';
 const ASSETS = [
   '/', '/index.html', '/docs.html', '/share.html', '/offline.html',
   '/tos.html', '/privacy.html', '/dmca.html',

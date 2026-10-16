@@ -1,4 +1,4 @@
-/* Van313 Ultra — frontend v6: ikon SVG, video player inline + pemilih kualitas, tanpa emoji.
+/* Ultra Downloader — frontend Neo-Brutalism v7: ikon SVG, video/audio player inline dengan proxy fallback otomatis, pemilih kualitas, batch, search, QR, dan riwayat.
    Kontrak backend: POST /api/index, GET /api/search, POST /api/job, GET /api/job/:id, GET /api/file/:id */
 'use strict';
 
@@ -54,12 +54,11 @@ async function initServer() {
     } catch (e) { /* default */ }
     setupTurnstile();
     setupUmami();
-    // Banner cookies di homepage dimatikan (mengganggu); cek via halaman Admin.
     var u = null;
     try { u = new URLSearchParams(location.search).get('u'); } catch (e) { }
     if (u) {
         var inp = $('urlInput');
-        if (inp) { inp.value = u; fetchMedia(); }
+        if (inp) { inp.value = u; detectPlatform(); fetchMedia(); }
     }
 }
 function setupTurnstile() {
@@ -105,6 +104,7 @@ function setupUmami() {
     s.src = String(url).replace(/\/$/, '') + '/script.js';
     document.head.appendChild(s);
 }
+
 /* ---------- riwayat ---------- */
 function getHistory() { try { return JSON.parse(localStorage.getItem('dlHistory') || '[]'); } catch (e) { return []; } }
 function saveHistory(item) {
@@ -118,7 +118,7 @@ function renderHistory() {
     var h = getHistory();
     if (!h.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
     box.classList.remove('hidden');
-    var html = '<div class="sec-label">' + ic('history', 14) + ' ' + esc(t('hist.title')) + ' <a href="#" id="histClear">' + ic('trash', 13) + ' ' + esc(t('hist.clear')) + '</a></div>';
+    var html = '<div class="sec-label" style="margin-top:0;">' + ic('history', 14) + ' <span>' + esc(t('hist.title')) + '</span> <a href="#" id="histClear">' + ic('trash', 13) + ' ' + esc(t('hist.clear')) + '</a></div>';
     h.forEach(function (x, i) {
         html += '<div class="hist-row" data-hi="' + i + '"><span class="opt-meta">' + esc(x.title || x.url) + '</span><span class="q-badge">' + esc(x.badge || '') + '</span></div>';
     });
@@ -128,12 +128,19 @@ function renderHistory() {
     Array.prototype.forEach.call(box.querySelectorAll('.hist-row'), function (row) {
         row.onclick = function () {
             var x = getHistory()[+row.getAttribute('data-hi')];
-            if (x && $('urlInput')) { $('urlInput').value = x.url; fetchMedia(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+            if (x && $('urlInput')) { $('urlInput').value = x.url; detectPlatform(); fetchMedia(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
         };
     });
 }
 
-/* ---------- clipboard ---------- */
+/* ---------- clipboard & input helpers ---------- */
+function clearUrlInput() {
+    var inp = $('urlInput');
+    if (!inp) return;
+    inp.value = '';
+    detectPlatform();
+    inp.focus();
+}
 async function pasteClipboard() {
     var inp = $('urlInput'); if (!inp) return;
     try {
@@ -156,9 +163,12 @@ function fallbackCopy(txt) {
     document.body.removeChild(ta);
 }
 function detectPlatform() {
-    var badge = $('platBadge'); if (!badge || !$('urlInput')) return;
-    var u = $('urlInput').value.toLowerCase();
-    var hosts = [['tiktok','TIKTOK'],['instagram','INSTAGRAM'],['youtu','YOUTUBE'],['facebook','FACEBOOK'],['fb.','FACEBOOK'],['twitter','X'],['x.com','X'],['threads','THREADS'],['soundcloud','SOUNDCLOUD'],['spotify','SPOTIFY'],['pinterest','PINTEREST'],['pin.it','PINTEREST'],['reddit','REDDIT'],['vimeo','VIMEO'],['dailymotion','DAILYMOTION'],['twitch','TWITCH'],['kick.com','KICK'],['likee','LIKEE'],['snack','SNACKVIDEO'],['capcut','CAPCUT'],['bilibili','BILIBILI'],['b23.tv','BILIBILI'],['douyin','DOUYIN'],['vk.com','VK'],['ok.ru','OK.RU'],['rutube','RUTUBE'],['t.me','TELEGRAM'],['snapchat','SNAPCHAT'],['streamable','STREAMABLE'],['rumble','RUMBLE'],['tumblr','TUMBLR'],['imgur','IMGUR'],['giphy','GIPHY'],['drive.google','GDRIVE'],['dropbox','DROPBOX'],['mediafire','MEDIAFIRE']];
+    var inp = $('urlInput');
+    var cb = $('clearBtn');
+    if (cb && inp) cb.classList.toggle('hidden', !inp.value.trim());
+    var badge = $('platBadge'); if (!badge || !inp) return;
+    var u = inp.value.toLowerCase();
+    var hosts = [['tiktok','TIKTOK'],['instagram','INSTAGRAM'],['youtu','YOUTUBE'],['facebook','FACEBOOK'],['fb.','FACEBOOK'],['twitter','TWITTER / X'],['x.com','TWITTER / X'],['threads','THREADS'],['soundcloud','SOUNDCLOUD'],['spotify','SPOTIFY'],['pinterest','PINTEREST'],['pin.it','PINTEREST'],['reddit','REDDIT'],['vimeo','VIMEO'],['dailymotion','DAILYMOTION'],['twitch','TWITCH'],['kick.com','KICK'],['likee','LIKEE'],['snack','SNACKVIDEO'],['capcut','CAPCUT'],['bilibili','BILIBILI'],['b23.tv','BILIBILI'],['douyin','DOUYIN'],['vk.com','VK'],['ok.ru','OK.RU'],['rutube','RUTUBE'],['t.me','TELEGRAM'],['snapchat','SNAPCHAT'],['streamable','STREAMABLE'],['rumble','RUMBLE'],['tumblr','TUMBLR'],['imgur','IMGUR'],['giphy','GIPHY'],['drive.google','GDRIVE'],['dropbox','DROPBOX'],['mediafire','MEDIAFIRE']];
     var p = '';
     for (var i = 0; i < hosts.length; i++) { if (u.indexOf(hosts[i][0]) >= 0) { p = hosts[i][1]; break; } }
     badge.textContent = p;
@@ -203,7 +213,8 @@ async function fetchMedia() {
     var inp = $('urlInput'); if (!inp) return;
     var url = cleanUrl(inp.value);
     inp.value = url;
-    if (!url) { toast(t('e.empty')); return; }
+    detectPlatform();
+    if (!url) { toast(t('e.empty')); inp.focus(); return; }
     if (!validUrl(url)) { showError(t('e.badurl')); return; }
     if (needCaptcha()) return;
     hideError();
@@ -262,9 +273,11 @@ async function fetchBatch() {
 }
 
 /* ---------- render hasil ---------- */
-function proxied(item, title, kind) {
+function proxied(item, title, kind, inline) {
     var ext = item.extension || (kind === 'audio' ? 'mp3' : kind === 'image' ? 'jpg' : 'mp4');
-    return apiLink('/api/download', { url: item.url, filename: title, ext: ext });
+    var params = { url: item.url, filename: title, ext: ext };
+    if (inline) params.inline = '1';
+    return apiLink('/api/download', params);
 }
 function qrToggle(btn, url) {
     var card = btn.closest('.result-card') || document;
@@ -298,7 +311,7 @@ function renderJson(j, srcUrl, append) {
         var items = j.items || [];
         card.innerHTML =
             '<div class="result-header"><span>' + ic('layers', 15) + ' ' + esc(t('sec.playlist')) + '</span><span class="result-badge">' + (pl.shown || items.length) + '/' + (pl.total || items.length) + ' ' + esc(t('pl.items')) + '</span></div>' +
-            '<div class="result-body"><div class="media-title">' + esc(String(pl.title || title).slice(0, 90)) + '</div>' +
+            '<div class="result-body"><div class="media-title" style="font-weight:800;margin-bottom:10px;">' + esc(String(pl.title || title).slice(0, 90)) + '</div>' +
             '<div class="sec-label">' + esc(t('pl.choose')) + '</div><div class="pl-list"></div></div>';
         res.appendChild(card);
         var box = card.querySelector('.pl-list');
@@ -309,7 +322,7 @@ function renderJson(j, srcUrl, append) {
             var b = document.createElement('button');
             b.className = 'mini-btn';
             b.innerHTML = ic('zap', 13) + ' <span>' + esc(t('pl.process')) + '</span>';
-            b.onclick = function () { if ($('urlInput')) $('urlInput').value = it.url; fetchMedia(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+            b.onclick = function () { if ($('urlInput')) { $('urlInput').value = it.url; detectPlatform(); } fetchMedia(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
             row.appendChild(b);
             box.appendChild(row);
         });
@@ -318,49 +331,55 @@ function renderJson(j, srcUrl, append) {
 
     var dl = j.downloads || {};
     var videos = dl.video || [], audios = dl.audio || [], images = dl.image || [], subs = dl.subtitles || [];
-    var h = '<div class="result-header"><span class="rh-title">' + esc(String(title).slice(0, 70)) + '</span><span class="result-badge">' + esc(badge) + '</span></div><div class="result-body">';
+    var posterUrl = info.thumbnail ? apiLink('/api/download', { url: info.thumbnail, filename: 'thumb', ext: 'jpg', inline: '1' }) : '';
+
+    var h = '<div class="result-header"><span class="rh-title">' + esc(String(title).slice(0, 80)) + '</span><span class="result-badge">' + esc(badge) + '</span></div><div class="result-body">';
     h += '<div class="result-meta-line">' +
-        (info.uploader ? '<span class="meta-chip">' + ic('user', 12) + ' ' + esc(String(info.uploader).slice(0, 28)) + '</span>' : '') +
-        (info.duration_label ? '<span class="meta-chip">' + ic('clock', 12) + ' ' + esc(info.duration_label) + '</span>' : '') +
-        (j.cached ? '<span class="meta-chip">' + ic('zap', 12) + ' cache</span>' : '') + '</div>';
+        (info.uploader ? '<span class="meta-chip">' + ic('user', 12) + ' ' + esc(String(info.uploader).slice(0, 32)) + '</span>' : '') +
+        (info.duration_label && info.duration_label !== '-' ? '<span class="meta-chip">' + ic('clock', 12) + ' ' + esc(info.duration_label) + '</span>' : '') +
+        (j.cached ? '<span class="meta-chip">' + ic('zap', 12) + ' INSTANT CACHE</span>' : '') + '</div>';
 
     /* Video: player inline + pemilih kualitas */
     if (videos.length) {
         h += '<div class="sec-label">' + ic('film', 14) + ' ' + esc(t('sec.video')) + '</div>';
-        h += '<div class="vplayer"><video controls playsinline preload="metadata"' + (info.thumbnail ? ' poster="' + esc(info.thumbnail) + '"' : '') + ' src="' + esc(videos[0].url) + '"></video></div>';
+        h += '<div class="vplayer"><video controls playsinline preload="metadata"' + (posterUrl ? ' poster="' + esc(posterUrl) + '"' : '') + ' src="' + esc(videos[0].url) + '"></video></div>';
         h += '<div class="vq-row">';
         videos.forEach(function (v, i) {
-            h += '<button class="vq-btn' + (i === 0 ? ' active' : '') + '" data-vq="' + i + '">' + esc(shortQ(v)) + (v.has_audio === false ? ' <em>' + esc(t('opt.noaudio')) + '</em>' : '') + '</button>';
+            h += '<button type="button" class="vq-btn' + (i === 0 ? ' active' : '') + '" data-vq="' + i + '">' + esc(shortQ(v)) + (v.has_audio === false ? ' <em>(' + esc(t('opt.noaudio')) + ')</em>' : '') + '</button>';
         });
         h += '</div>';
         videos.forEach(function (v, i) {
-            h += '<div class="opt-row" data-vr="' + i + '"><span class="opt-meta">' + esc(v.quality || shortQ(v)) + ' • ' + esc(v.extension || 'mp4') + (v.filesize_label ? ' • ' + esc(v.filesize_label) : '') + '</span>' +
+            var sizeStr = (v.filesize_label && v.filesize_label !== 'Unknown') ? ' • ' + v.filesize_label : '';
+            h += '<div class="opt-row" data-vr="' + i + '"><span class="opt-meta">' + esc(v.quality || shortQ(v)) + ' • ' + esc((v.extension || 'mp4').toUpperCase()) + esc(sizeStr) + '</span>' +
                 '<span class="opt-actions"><a class="dl-btn' + (i === 0 ? ' best' : '') + '" href="' + esc(proxied(v, title, 'video')) + '" download>' + ic('download', 13) + ' ' + esc(i === 0 ? t('opt.best') : t('opt.dl')) + '</a>' +
-                '<button class="mini-btn plain" data-act="copy">' + ic('copy', 13) + '</button>' +
-                '<button class="mini-btn plain" data-act="qr">' + ic('qr', 13) + '</button></span>' +
+                '<button type="button" class="mini-btn plain" data-act="copy" title="Copy URL">' + ic('copy', 13) + '</button>' +
+                '<button type="button" class="mini-btn plain" data-act="qr" title="QR Code">' + ic('qr', 13) + '</button></span>' +
                 '<div class="qr-cell hidden"></div></div>';
         });
     }
     /* Audio */
     if (audios.length) {
         h += '<div class="sec-label">' + ic('music', 14) + ' ' + esc(t('sec.audio')) + '</div>';
-        h += '<div class="audio-card"><div class="ac-title">' + esc(String(title).slice(0, 70)) + '</div><audio controls preload="none" src="' + esc(audios[0].url) + '"></audio></div>';
+        h += '<div class="audio-card"><div class="ac-title">' + esc(String(title).slice(0, 75)) + '</div><audio controls preload="metadata" src="' + esc(audios[0].url) + '"></audio></div>';
         audios.forEach(function (a, i) {
-            h += '<div class="opt-row"><span class="opt-meta">' + esc(a.quality || '') + ' • ' + esc(a.extension || 'mp3') + (a.filesize_label ? ' • ' + esc(a.filesize_label) : '') + '</span>' +
+            var aSizeStr = (a.filesize_label && a.filesize_label !== 'Unknown') ? ' • ' + a.filesize_label : '';
+            h += '<div class="opt-row"><span class="opt-meta">' + esc(a.quality || 'Audio') + ' • ' + esc((a.extension || 'mp3').toUpperCase()) + esc(aSizeStr) + '</span>' +
                 '<span class="opt-actions"><a class="dl-btn' + (i === 0 ? ' best' : '') + '" href="' + esc(proxied(a, title, 'audio')) + '" download>' + ic('download', 13) + ' ' + esc(i === 0 ? t('opt.best') : t('opt.dl')) + '</a>' +
-                '<button class="mini-btn plain" data-au="' + esc(a.url) + '">' + ic('copy', 13) + '</button></span></div>';
+                '<button type="button" class="mini-btn plain" data-au="' + esc(a.url) + '" title="Copy URL">' + ic('copy', 13) + '</button></span></div>';
         });
     }
     /* Foto */
     if (images.length) {
         h += '<div class="sec-label">' + ic('image', 14) + ' ' + esc(t('sec.img')) + ' (' + images.length + ')</div><div class="img-gallery">';
         images.forEach(function (im, i) {
-            h += '<img loading="lazy" src="' + esc(im.thumbnail || im.url) + '" alt="img" data-gi="' + i + '" onerror="this.style.display=\'none\'">';
+            var inlineImg = proxied(im, title + '_' + (i + 1), 'image', true);
+            h += '<img loading="lazy" src="' + esc(im.thumbnail || im.url) + '" data-fallback="' + esc(inlineImg) + '" alt="img" data-gi="' + i + '" onerror="if(this.dataset.fallback&&this.src!==this.dataset.fallback){this.src=this.dataset.fallback;}else{this.style.display=\'none\';}">';
         });
         h += '</div>';
         images.forEach(function (im, i) {
-            h += '<div class="opt-row"><span class="opt-meta">' + esc(im.quality || ('Foto ' + (i + 1))) + '</span>' +
-                '<a class="dl-btn" href="' + esc(proxied(im, title + '_' + (i + 1), 'image')) + '" download>' + ic('download', 13) + ' ' + esc(t('opt.save')) + '</a></div>';
+            var iSizeStr = (im.filesize_label && im.filesize_label !== 'Unknown') ? ' • ' + im.filesize_label : '';
+            h += '<div class="opt-row"><span class="opt-meta">' + esc(im.quality || ('Foto ' + (i + 1))) + esc(iSizeStr) + '</span>' +
+                '<a class="dl-btn best" href="' + esc(proxied(im, title + '_' + (i + 1), 'image')) + '" download>' + ic('download', 13) + ' ' + esc(t('opt.save')) + '</a></div>';
         });
     }
     /* Subtitle */
@@ -372,40 +391,68 @@ function renderJson(j, srcUrl, append) {
         });
         h += '</div>';
     }
-    /* Konversi */
+    /* Konversi Server */
     var canConvert = videos.length || audios.length;
     if (canConvert) {
         if (SERVER.mp3) {
-            h += '<div class="sec-label">' + ic('music', 14) + ' MP3</div><div class="convert-row"><button class="mini-btn" data-job="mp3">' + ic('music', 13) + ' ' + esc(t('mp3.btn')) + '</button></div><div class="hint-text">' + esc(t('mp3.note')) + '</div>';
-        } else if (SERVER.runtime === 'vercel') h += '<div class="hint-text">' + esc(t('mp3.noffmpeg')) + '</div>';
-        if (SERVER.merge && videos.length) {
+            h += '<div class="sec-label">' + ic('music', 14) + ' MP3 CONVERTER</div><div class="convert-row"><button type="button" class="mini-btn" data-job="mp3">' + ic('music', 13) + ' ' + esc(t('mp3.btn')) + '</button></div><div class="hint-text">' + esc(t('mp3.note')) + '</div>';
+        }
+        if (SERVER.merge && videos.length && info.has_split) {
             var heights = info.merge_heights && info.merge_heights.length ? info.merge_heights : [720];
             h += '<div class="sec-label">' + ic('zap', 14) + ' ' + esc(t('sec.hd')) + '</div><div class="convert-row">';
-            heights.forEach(function (hh) { h += '<button class="mini-btn alt" data-job="merge" data-h="' + hh + '">' + ic('film', 13) + ' HD ' + hh + 'p</button>'; });
+            heights.forEach(function (hh) { h += '<button type="button" class="mini-btn alt" data-job="merge" data-h="' + hh + '">' + ic('film', 13) + ' HD ' + hh + 'p + Audio</button>'; });
             h += '</div><div class="hint-text">' + esc(t('hd.note')) + '</div>';
-        } else if (SERVER.runtime === 'vercel' && videos.length) h += '<div class="hint-text">' + esc(t('hd.noffmpeg')) + '</div>';
+        }
         if (SERVER.trim && videos.length) {
-            h += '<div class="sec-label">' + ic('scissors', 14) + ' ' + esc(t('trim.title')) + '</div><div class="convert-row"><button class="mini-btn plain" data-job="trim">' + ic('scissors', 13) + ' ' + esc(t('trim.btn')) + '</button></div>' +
-                '<div class="trim-extra hidden"><div class="trim-inputs"><span>' + esc(t('trim.start')) + '</span><input type="number" min="0" value="0" class="t-start"><span>' + esc(t('trim.end')) + '</span><input type="number" min="1" value="30" class="t-end"><button class="mini-btn" data-job="trimgo">' + esc(t('trim.go')) + '</button></div><div class="hint-text">' + esc(t('trim.max')) + '</div></div>';
+            h += '<div class="sec-label">' + ic('scissors', 14) + ' ' + esc(t('trim.title')) + '</div><div class="convert-row"><button type="button" class="mini-btn plain" data-job="trim">' + ic('scissors', 13) + ' ' + esc(t('trim.btn')) + '</button></div>' +
+                '<div class="trim-extra hidden"><div class="trim-inputs"><span>' + esc(t('trim.start')) + '</span><input type="number" min="0" value="0" class="t-start"><span>' + esc(t('trim.end')) + '</span><input type="number" min="1" value="30" class="t-end"><button type="button" class="mini-btn" data-job="trimgo">' + esc(t('trim.go')) + '</button></div><div class="hint-text">' + esc(t('trim.max')) + '</div></div>';
         }
     }
     h += '</div>';
     card.innerHTML = h;
     res.appendChild(card);
 
-    /* quality switcher -> ganti src player */
+    /* Video player fallback ke proxy inline jika CDN memblokir CORS/Referer */
     var player = card.querySelector('.vplayer video');
+    if (player && videos[0]) {
+        player.dataset.curIdx = '0';
+        player.onerror = function () {
+            var idx = +(player.dataset.curIdx || 0);
+            var curV = videos[idx];
+            if (!curV) return;
+            var fallbackSrc = proxied(curV, title, 'video', true);
+            if (player.src.indexOf('/api/download') < 0) {
+                player.src = fallbackSrc;
+            }
+        };
+    }
+
+    var audioPlayer = card.querySelector('.audio-card audio');
+    if (audioPlayer && audios[0]) {
+        audioPlayer.onerror = function () {
+            if (audioPlayer.src.indexOf('/api/download') < 0) {
+                audioPlayer.src = proxied(audios[0], title, 'audio', true);
+            }
+        };
+    }
+
+    /* quality switcher -> ganti src player */
     Array.prototype.forEach.call(card.querySelectorAll('[data-vq]'), function (b) {
         b.onclick = function () {
             Array.prototype.forEach.call(card.querySelectorAll('[data-vq]'), function (x) { x.classList.remove('active'); });
             b.classList.add('active');
-            var v = videos[+b.getAttribute('data-vq')];
-            if (player && v) { player.src = v.url; player.play().catch(function () { }); }
+            var idx = +b.getAttribute('data-vq');
+            var v = videos[idx];
+            if (player && v) {
+                player.dataset.curIdx = String(idx);
+                player.src = v.url;
+                player.play().catch(function () { });
+            }
         };
     });
     Array.prototype.forEach.call(card.querySelectorAll('[data-gi]'), function (img) {
         img.style.cursor = 'zoom-in';
-        img.onclick = function () { openLightbox(images.map(function (x) { return x.url; }), +img.getAttribute('data-gi')); };
+        img.onclick = function () { openLightbox(images.map(function (x, i) { return proxied(x, title + '_' + (i + 1), 'image', true); }), +img.getAttribute('data-gi')); };
     });
     videos.forEach(function (v, i) {
         var row = card.querySelector('[data-vr="' + i + '"]');
@@ -457,7 +504,7 @@ async function submitJob(kind, url, title, extra) {
 async function pollJob(id) {
     ACTIVE_JOBS[id] = true;
     while (ACTIVE_JOBS[id]) {
-        await new Promise(function (res) { setTimeout(res, 1500); });
+        await new Promise(function (res) { setTimeout(res, 1200); });
         if (!ACTIVE_JOBS[id]) return;
         try {
             var r = await fetch('/api/job/' + encodeURIComponent(id));
@@ -496,7 +543,7 @@ async function cancelJob(id) {
 async function doSearch() {
     var inp = $('searchInput'); if (!inp) return;
     var q = inp.value.trim();
-    if (!q) { toast(t('e.empty')); return; }
+    if (!q) { toast(t('e.empty')); inp.focus(); return; }
     if (needCaptcha()) return;
     var res = $('result'); if (res) res.innerHTML = '';
     hideError(); setLoading(true);
@@ -509,17 +556,20 @@ async function doSearch() {
         if (!items.length) { showError(t('search.noresult')); return; }
         var card = document.createElement('div');
         card.className = 'cyber-card result-card anim-in';
-        var h = '<div class="result-header"><span>' + ic('search', 15) + ' ' + esc(t('sec.search')) + '</span><span class="result-badge">' + items.length + '</span></div><div class="result-body">';
+        var h = '<div class="result-header"><span>' + ic('search', 15) + ' ' + esc(t('sec.search')) + '</span><span class="result-badge">' + items.length + ' VIDEO</span></div><div class="result-body">';
         items.forEach(function (it, i) {
-            h += '<div class="sr-row"><div class="sr-info"><div class="sr-title">' + esc(it.title || '') + '</div><div class="sr-meta">' + esc(it.channel || '') + (it.duration_label ? ' • ' + esc(it.duration_label) : '') + '</div></div><button class="sr-use" data-sr="' + i + '" aria-label="download">' + ic('download', 15) + '</button></div>';
+            h += '<div class="sr-row"><div class="sr-info"><div class="sr-title">' + esc(it.title || '') + '</div><div class="sr-meta">' + esc(it.channel || '') + (it.duration_label ? ' • ' + esc(it.duration_label) : '') + '</div></div><button type="button" class="sr-use" data-sr="' + i + '" aria-label="download">' + ic('download', 15) + ' <span>' + esc(t('opt.dl')) + '</span></button></div>';
         });
         h += '</div>';
         card.innerHTML = h;
-        if (res) res.appendChild(card);
+        if (res) {
+            res.appendChild(card);
+            card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
         Array.prototype.forEach.call(card.querySelectorAll('[data-sr]'), function (b) {
             b.onclick = function () {
                 var it = items[+b.getAttribute('data-sr')];
-                if ($('urlInput')) $('urlInput').value = it.url;
+                if ($('urlInput')) { $('urlInput').value = it.url; detectPlatform(); }
                 fetchMedia();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             };
@@ -568,10 +618,10 @@ function closeLightbox() { var lb = $('lightbox'); if (lb) lb.classList.add('hid
 var SPLASH_T0 = Date.now();
 function hideSplash() { var sp = $('splash'); if (sp) sp.classList.add('splash-hide'); }
 window.addEventListener('load', function () {
-    var wait = Math.max(0, 900 - (Date.now() - SPLASH_T0));
+    var wait = Math.max(0, 650 - (Date.now() - SPLASH_T0));
     setTimeout(hideSplash, wait);
 });
-setTimeout(hideSplash, 3500); // pengaman
+setTimeout(hideSplash, 2500);
 
 /* ---------- PWA ---------- */
 var deferredPrompt = null;

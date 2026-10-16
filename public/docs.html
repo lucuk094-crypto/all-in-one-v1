@@ -1,114 +1,151 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="id" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panduan — Van313 Ultra</title>
-    <meta name="description" content="Panduan Van313 Ultra: cara download, platform didukung, troubleshooting, fitur lanjutan.">
-    <meta name="theme-color" content="#0a0a0a">
+    <title>Panduan — Ultra Downloader</title>
+    <meta name="description" content="Panduan Ultra Downloader: cara download video TikTok tanpa watermark, IG Reels, YouTube MP3 & HD, Facebook, Twitter/X, dan FAQ lengkap.">
+    <meta name="theme-color" content="#090a0f">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;800&family=Space+Grotesk:wght@300;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Space+Grotesk:wght@500;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="bg-noise"></div>
+    <div class="bg-grid"></div>
     <div class="floating-shape shape-doc-1"></div>
+
+    <div class="marquee-top">
+        <div class="marquee-content" data-i18n="marquee">ULTRA DOWNLOADER • TIKTOK TANPA WATERMARK • IG REELS &amp; FOTO • YOUTUBE HD &amp; MP3 • FACEBOOK HD • TWITTER / X • CEPAT &amp; GRATIS • </div>
+    </div>
+
     <nav class="navbar">
-        <div class="brand-box">
-            <div class="brand-icon">///</div>
-            <div class="brand-text" data-i18n="d.brand">BACA!!</div>
-        </div>
+        <a href="index.html" class="brand-container" style="text-decoration:none;">
+            <div class="brand-mark">ULTRA</div>
+            <div class="brand-glitch" data-text="ULTRA DOWNLOADER" data-i18n="d.brand">PANDUAN ULTRA</div>
+        </a>
         <div class="nav-actions">
-            <button id="langBtn" class="nav-btn small" onclick="setLang(getLang()==='id'?'en':'id')"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><path d="M2 12h20"/></svg><span>ID</span></button>
-            <button id="themeBtn" class="nav-btn small" onclick="toggleTheme()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>
-            <a href="index.html" class="nav-btn"><span style="margin-right:5px;">&lt;&lt;</span> <span data-i18n="d.back">KEMBALI KE SISTEM</span></a>
+            <button id="langBtn" class="nav-btn small" onclick="setLang(getLang()==='id'?'en':'id')"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><path d="M2 12h20"/></svg><span>ID</span></button>
+            <button id="themeBtn" class="nav-btn small" onclick="toggleTheme()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>
+            <a href="index.html" class="nav-btn"><span style="margin-right:4px;">←</span> <span data-i18n="d.back">KEMBALI KE BERANDA</span></a>
         </div>
     </nav>
-    <div class="container docs-container">
-        <div class="cyber-header">
-            <h1 data-i18n="d.h1">MANUAL PENGGUNA</h1>
-            <p data-i18n="d.sub">ARSIP DOKUMENTASI & PROTOKOL PENGGUNAAN</p>
-            <div class="scan-line"></div>
-        </div>
-        <nav class="docs-nav"><a href="#cara">01</a><a href="#platform">02</a><a href="#bantuan">03</a><a href="#fitur">04</a><a href="#gabung">JOIN</a></nav>
-        <div class="cyber-card" id="cara">
-            <div class="card-header-visual" style="background: var(--main-black);">
-                <span style="color: var(--accent-secondary); font-weight:900;" data-i18n="d.s1">01 // PROTOKOL EKSEKUSI</span>
-                <span class="status-dot"></span>
+
+    <main class="container docs-container">
+        <header class="cyber-header anim-in">
+            <span class="guide-kicker">DOKUMENTASI RESMI v2.0</span>
+            <h1 data-i18n="d.h1">PANDUAN &amp; DOKUMENTASI</h1>
+            <p data-i18n="d.sub">MANUAL LENGKAP PENGGUNAAN ULTRA DOWNLOADER</p>
+        </header>
+
+        <nav class="docs-nav anim-in">
+            <a href="#cara">01 // CARA PAKAI</a>
+            <a href="#platform">02 // PLATFORM</a>
+            <a href="#bantuan">03 // FAQ &amp; SOLUSI</a>
+            <a href="#fitur">04 // FITUR PRO</a>
+            <a href="#gabung">OFFICIAL</a>
+        </nav>
+
+        <section class="cyber-card anim-in" id="cara">
+            <div class="result-header">
+                <span data-i18n="d.s1">01 // LANGKAH EKSEKUSI</span>
+                <span class="result-badge">4 STEPS</span>
             </div>
             <div class="card-body">
-                <div class="step-list">
-                    <div class="step-item"><div class="step-number">01</div><div class="step-content"><h3 data-i18n="d.st1t">AKUISISI TAUTAN (COPY LINK)</h3><p data-i18n="d.st1d"></p></div></div>
-                    <div class="step-item"><div class="step-number">02</div><div class="step-content"><h3 data-i18n="d.st2t">INJEKSI DATA (PASTE)</h3><p data-i18n="d.st2d"></p></div></div>
-                    <div class="step-item"><div class="step-number">03</div><div class="step-content"><h3 data-i18n="d.st3t">INISIASI PROSES</h3><p data-i18n="d.st3d"></p></div></div>
-                    <div class="step-item"><div class="step-number">04</div><div class="step-content"><h3 data-i18n="d.st4t">PENGAMBILAN FILE</h3><p data-i18n="d.st4d"></p></div></div>
+                <div class="guide-steps-grid">
+                    <article class="nb-step-card">
+                        <div class="nb-step-top"><span class="nb-step-num">01</span><span class="nb-step-tag">STEP 1</span></div>
+                        <h3 data-i18n="d.st1t">SALIN TAUTAN (COPY LINK)</h3>
+                        <p data-i18n="d.st1d">Buka TikTok, Instagram, YouTube, Facebook, atau X/Twitter. Ketuk tombol "Bagikan" lalu pilih "Salin Tautan".</p>
+                    </article>
+                    <article class="nb-step-card">
+                        <div class="nb-step-top"><span class="nb-step-num">02</span><span class="nb-step-tag">STEP 2</span></div>
+                        <h3 data-i18n="d.st2t">TEMPEL TAUTAN (PASTE)</h3>
+                        <p data-i18n="d.st2d">Tempel tautan ke kolom "TARGET URL" di halaman utama atau cukup tekan tombol "Tempel" otomatis.</p>
+                    </article>
+                    <article class="nb-step-card">
+                        <div class="nb-step-top"><span class="nb-step-num">03</span><span class="nb-step-tag">STEP 3</span></div>
+                        <h3 data-i18n="d.st3t">EKSTRAKSI &amp; PREVIEW</h3>
+                        <p data-i18n="d.st3d">Tekan tombol "Download Sekarang". Sistem akan menampilkan player preview, resolusi video, audio MP3, atau galeri foto.</p>
+                    </article>
+                    <article class="nb-step-card">
+                        <div class="nb-step-top"><span class="nb-step-num">04</span><span class="nb-step-tag">STEP 4</span></div>
+                        <h3 data-i18n="d.st4t">UNDUH KE PERANGKAT</h3>
+                        <p data-i18n="d.st4d">Pilih resolusi terbaik (HD No Watermark / MP4 / MP3) lalu simpan langsung ke HP atau laptop Anda.</p>
+                    </article>
                 </div>
             </div>
-        </div>
-        <div class="cyber-card" id="platform">
-            <div class="card-header-visual" style="background: var(--accent-primary);">
-                <span style="color: #fff; font-weight:900;" data-i18n="d.s2">02 // DATABASE PLATFORM</span>
-                <div style="color: #fff; font-family: monospace;">STATUS: CONNECTED</div>
+        </section>
+
+        <section class="cyber-card anim-in" id="platform">
+            <div class="result-header" style="background: var(--accent-primary); color: #fff;">
+                <span data-i18n="d.s2">02 // PLATFORM &amp; FITUR DIDUKUNG</span>
+                <span class="result-badge">ACTIVE</span>
             </div>
             <div class="card-body">
-                <p style="margin-bottom: 15px; font-weight: bold;" data-i18n="d.s2sub">SISTEM MENDUKUNG EKSTRAKSI DARI:</p>
+                <p class="section-intro-text" data-i18n="d.s2sub">TERINTEGRASI PENUH DENGAN ENGINE KECEPATAN TINGGI:</p>
                 <div class="platform-grid">
                     <div class="p-item">TIKTOK (NO WM)</div>
-                    <div class="p-item">IG REELS/STORY/FOTO</div>
-                    <div class="p-item">FACEBOOK + REELS</div>
-                    <div class="p-item">YOUTUBE + SHORTS</div>
-                    <div class="p-item">MP3 192KBPS</div>
-                    <div class="p-item">HD 1080P + SUARA</div>
+                    <div class="p-item">IG REELS &amp; FOTO</div>
+                    <div class="p-item">YOUTUBE HD 1080P</div>
+                    <div class="p-item">YOUTUBE MP3</div>
+                    <div class="p-item">FACEBOOK HD &amp; SD</div>
+                    <div class="p-item">TWITTER / X MP4</div>
+                    <div class="p-item">YOUTUBE SEARCH</div>
+                    <div class="p-item">TIKTOK SLIDE FOTO</div>
                     <div class="p-item">SUBTITLE (SRT/VTT)</div>
-                    <div class="p-item">TRIM VIDEO</div>
-                    <div class="p-item">TWITTER / X</div>
-                    <div class="p-item">CAROUSEL & PLAYLIST</div>
+                    <div class="p-item">CAROUSEL &amp; ALBUM</div>
                     <div class="p-item">BATCH 10 LINK</div>
-                    <div class="p-item">+1000 SITUS LAIN</div>
+                    <div class="p-item">QR CODE TRANSFER</div>
                 </div>
             </div>
-        </div>
-        <div class="cyber-card error-log-style" id="bantuan">
-            <div class="card-header-visual" style="background: var(--accent-tertiary);">
-                <span style="color: #000; font-weight:900;" data-i18n="d.s3">03 // DIAGNOSA MASALAH</span>
-                <span style="font-size:1.2rem;color:#000;">[!]</span>
+        </section>
+
+        <section class="cyber-card anim-in" id="bantuan">
+            <div class="result-header" style="background: var(--accent-tertiary); color: #000;">
+                <span data-i18n="d.s3">03 // SOLUSI MASALAH (FAQ)</span>
+                <span class="result-badge" style="background:#000;color:#fff;">FAQ</span>
             </div>
             <div class="card-body">
-                <details class="faq-box"><summary data-i18n="d.faq1q"></summary><p data-i18n="d.faq1a"></p></details>
-                <details class="faq-box"><summary data-i18n="d.faq2q"></summary><p data-i18n="d.faq2a"></p></details>
-                <details class="faq-box"><summary data-i18n="d.faq3q"></summary><p data-i18n="d.faq3a"></p></details>
-                <details class="faq-box"><summary data-i18n="d.faq4q"></summary><p data-i18n="d.faq4a"></p></details>
-                <details class="faq-box"><summary data-i18n="d.faq5q"></summary><p data-i18n="d.faq5a"></p></details>
+                <details class="faq-box" open><summary data-i18n="d.faq1q">KENAPA MEDIA TIDAK DITEMUKAN?</summary><p data-i18n="d.faq1a">Pastikan akun atau postingan bersifat publik (bukan akun private) dan link yang disalin masih aktif.</p></details>
+                <details class="faq-box"><summary data-i18n="d.faq2q">UNDUHAN TERPUTUS DI TENGAH JALAN?</summary><p data-i18n="d.faq2a">Biasanya karena koneksi internet berganti atau link CDN sudah kedaluwarsa. Cukup klik Download ulang dari awal.</p></details>
+                <details class="faq-box"><summary data-i18n="d.faq3q">BAGAIMANA CARA DOWNLOAD TIKTOK TANPA WATERMARK?</summary><p data-i18n="d.faq3a">Pilih tombol "HD • No WM" pada bagian Pilihan Video. Video akan langsung terunduh bersih tanpa logo.</p></details>
+                <details class="faq-box"><summary data-i18n="d.faq4q">BAGAIMANA CARA UBAH VIDEO YOUTUBE JADI MP3?</summary><p data-i18n="d.faq4a">Tempel link YouTube lalu pilih "MP3 • 128kbps" di bagian Pilihan Audio, atau klik tombol "Convert ke MP3".</p></details>
+                <details class="faq-box"><summary data-i18n="d.faq5q">APAKAH BISA DIGUNAKAN DI HP DAN LAPTOP?</summary><p data-i18n="d.faq5a">Ya! Ultra Downloader dirancang responsif penuh untuk semua layar smartphone Android/iOS, tablet, maupun laptop/PC.</p></details>
             </div>
-        </div>
-        <div class="cyber-card" id="fitur">
-            <div class="card-header-visual" style="background: var(--main-black);">
-                <span style="color: var(--accent-secondary); font-weight:900;" data-i18n="d.s4">04 // FITUR LANJUTAN</span>
+        </section>
+
+        <section class="cyber-card anim-in" id="fitur">
+            <div class="result-header">
+                <span data-i18n="d.s4">04 // FITUR EKSTRA ULTRA DOWNLOADER</span>
+                <span class="result-badge">PRO</span>
             </div>
             <div class="card-body">
-                <div class="step-list">
-                    <div class="step-item"><div class="step-content"><p data-i18n="d.f1"></p></div></div>
-                    <div class="step-item"><div class="step-content"><p data-i18n="d.f2"></p></div></div>
-                    <div class="step-item"><div class="step-content"><p data-i18n="d.f3"></p></div></div>
-                    <div class="step-item"><div class="step-content"><p data-i18n="d.f4"></p></div></div>
-                    <div class="step-item"><div class="step-content"><p data-i18n="d.f5"></p></div></div>
-                    <div class="step-item"><div class="step-content"><p data-i18n="d.f6"></p></div></div>
+                <div class="feature-grid">
+                    <div class="feature-box"><span class="fb-num">01</span><p data-i18n="d.f1"></p></div>
+                    <div class="feature-box"><span class="fb-num">02</span><p data-i18n="d.f2"></p></div>
+                    <div class="feature-box"><span class="fb-num">03</span><p data-i18n="d.f3"></p></div>
+                    <div class="feature-box"><span class="fb-num">04</span><p data-i18n="d.f4"></p></div>
+                    <div class="feature-box"><span class="fb-num">05</span><p data-i18n="d.f5"></p></div>
+                    <div class="feature-box"><span class="fb-num">06</span><p data-i18n="d.f6"></p></div>
                 </div>
             </div>
-        </div>
-        <div class="dev-zone" id="gabung">
-            <div class="dev-title" data-i18n="d.join">VAN313 | OFFICIAL</div>
-            <p data-i18n="d.joinsub">Bergabung untuk update sistem & lapor bug.</p>
-            <a href="https://whatsapp.com/channel/0029VadTPx58PgsNx7BS9x3y" target="_blank" class="cyber-button" style="text-align: center; text-decoration: none;" data-i18n="d.joinbtn">JoinSaluran</a>
-        </div>
+        </section>
+
+        <section class="dev-zone anim-in" id="gabung">
+            <div class="dev-title" data-i18n="d.join">ULTRA DOWNLOADER OFFICIAL</div>
+            <p data-i18n="d.joinsub">Ikuti saluran resmi untuk info pembaruan fitur &amp; bantuan teknis.</p>
+            <a href="https://whatsapp.com/channel/0029VadTPx58PgsNx7BS9x3y" target="_blank" rel="noopener" class="cyber-button" style="display:inline-flex; max-width:320px; margin-top:14px; text-decoration:none;" data-i18n="d.joinbtn">Gabung Saluran Resmi</a>
+        </section>
+
         <footer class="sann-footer">
             <div class="footer-line"></div>
-            <p class="foot-links"><a href="index.html">Home</a> • <a href="tos.html" data-i18n="foot.tos">Syarat &amp; Ketentuan</a> • <a href="privacy.html" data-i18n="foot.privacy">Privasi</a> • <a href="dmca.html" data-i18n="foot.dmca">DMCA</a></p>
+            <p class="foot-links"><a href="index.html" data-i18n="l.back">Beranda</a> • <a href="tos.html" data-i18n="foot.tos">Syarat &amp; Ketentuan</a> • <a href="privacy.html" data-i18n="foot.privacy">Privasi</a> • <a href="dmca.html" data-i18n="foot.dmca">DMCA</a></p>
         </footer>
-    </div>
+    </main>
     <script src="i18n.js"></script>
     <script src="script.js"></script>
 </body>
