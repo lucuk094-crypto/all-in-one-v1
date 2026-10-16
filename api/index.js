@@ -155,7 +155,7 @@ async function cacheGet(url) {
   if (m && Date.now() - m.time < CACHE_TTL_MS) return { data: m.data, mem: true };
   if (USE_UPSTASH) {
     try {
-      const r = await upstash('GET', `ac:${sha(url)}`);
+      const r = await upstash('GET', `ac_v5:${sha(url)}`);
       if (r) return { data: JSON.parse(r), mem: false };
     } catch {}
   }
@@ -167,7 +167,7 @@ async function cacheSet(url, payload) {
   if (USE_UPSTASH) {
     try {
       const s = JSON.stringify(payload);
-      if (s.length < 200000) await upstash('SET', `ac:${sha(url)}`, s, 'EX', 600);
+      if (s.length < 200000) await upstash('SET', `ac_v5:${sha(url)}`, s, 'EX', 300);
     } catch {}
   }
 }
@@ -582,34 +582,111 @@ function buildInfo(info, originalUrl, extra = {}) {
   };
 }
 
-// Fallback khusus TikTok via API publik tikwm
+// Ekstraktor cepat TikTok via API publik tikwm (HD + No WM + Audio + Photo Mode)
 async function fetchTikWmFallback(url) {
   try {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 25000);
-    const res = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`, { signal: ctrl.signal });
+    const t = setTimeout(() => ctrl.abort(), 15000);
+    const res = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(url)}&hd=1`, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json' },
+    });
     clearTimeout(t);
     const json = await res.json();
     if (json?.code !== 0 || !json?.data) return null;
     const d = json.data;
     const video = [], audio = [], image = [];
     const cover = d.cover || d.origin_cover || d.ai_dynamic_cover || null;
-    if (d.play) video.push({ type: 'video', url: d.play, quality: 'HD • No WM', extension: 'mp4', filesize: d.size || null, filesize_label: humanSize(d.size), thumbnail: cover, has_audio: true });
-    if (d.hdplay && d.hdplay !== d.play) video.push({ type: 'video', url: d.hdplay, quality: 'Full HD • No WM', extension: 'mp4', filesize: null, filesize_label: 'Unknown', thumbnail: cover, has_audio: true });
-    if (d.wmplay) video.push({ type: 'video', url: d.wmplay, quality: 'With Watermark', extension: 'mp4', filesize: null, filesize_label: 'Unknown', thumbnail: cover, has_audio: true });
-    if (d.music) audio.push({ type: 'audio', url: d.music, quality: 'Original Sound', extension: 'mp3', filesize: null, filesize_label: 'Unknown', thumbnail: cover, has_audio: true });
+    if (d.play) {
+      video.push({
+        type: 'video',
+        url: d.play,
+        preview_url: d.play,
+        src_url: url,
+        src_api: 'tiktok',
+        quality: 'HD • No WM',
+        extension: 'mp4',
+        filesize: d.size || null,
+        filesize_label: humanSize(d.size) || 'MP4 HD',
+        thumbnail: cover,
+        has_audio: true,
+      });
+    }
+    if (d.hdplay && d.hdplay !== d.play) {
+      video.push({
+        type: 'video',
+        url: d.hdplay,
+        preview_url: d.play || d.hdplay,
+        src_url: url,
+        src_api: 'tiktok',
+        quality: 'Full HD • No WM',
+        extension: 'mp4',
+        filesize: d.hd_size || null,
+        filesize_label: humanSize(d.hd_size) || 'Full HD',
+        thumbnail: cover,
+        has_audio: true,
+      });
+    }
+    if (d.wmplay) {
+      video.push({
+        type: 'video',
+        url: d.wmplay,
+        preview_url: d.play || d.wmplay,
+        src_url: url,
+        src_api: 'tiktok',
+        quality: 'With Watermark',
+        extension: 'mp4',
+        filesize: d.wm_size || null,
+        filesize_label: humanSize(d.wm_size) || 'MP4 WM',
+        thumbnail: cover,
+        has_audio: true,
+      });
+    }
+    const musicUrl = (typeof d.music === 'string' && d.music.startsWith('http'))
+      ? d.music
+      : (typeof d.music_info?.play === 'string' && d.music_info.play.startsWith('http') ? d.music_info.play : null);
+    if (musicUrl) {
+      audio.push({
+        type: 'audio',
+        url: musicUrl,
+        preview_url: musicUrl,
+        src_url: url,
+        src_api: 'tiktok',
+        quality: 'Original Sound (MP3)',
+        extension: 'mp3',
+        filesize: null,
+        filesize_label: 'MP3 Audio',
+        thumbnail: cover,
+        has_audio: true,
+      });
+    }
     // TikTok photo-mode: images[]
     if (Array.isArray(d.images)) {
-      d.images.slice(0, 10).forEach((src, i) => {
-        if (typeof src === 'string') image.push({ type: 'image', url: src, quality: `Foto ${i + 1} • No WM`, extension: 'jpg', filesize: null, filesize_label: 'Unknown', thumbnail: src, has_audio: false });
+      d.images.slice(0, 12).forEach((src, i) => {
+        if (typeof src === 'string' && src.startsWith('http')) {
+          image.push({
+            type: 'image',
+            url: src,
+            preview_url: src,
+            src_url: url,
+            src_api: 'tiktok',
+            quality: `Foto ${i + 1} • No WM`,
+            extension: 'jpg',
+            filesize: null,
+            filesize_label: 'Foto HD',
+            thumbnail: src,
+            has_audio: false,
+          });
+        }
       });
     }
     if (!video.length && !audio.length && !image.length) return null;
     return {
+      source: 'tikwm',
       downloads: { video, audio, image, subtitles: [] },
       info: {
         title: d.title || 'TikTok Video',
-        thumbnail: cover,
+        thumbnail: cover || image[0]?.url || null,
         duration: d.duration || null,
         duration_label: humanDuration(d.duration),
         uploader: d.author?.nickname || d.author?.unique_id || 'TikTok',
@@ -706,7 +783,7 @@ function hasEphemeralSignedToken(payload) {
       ...(payload?.downloads?.audio || []),
       ...(payload?.downloads?.image || []),
     ];
-    return all.some((m) => /secure-signed\.pages\.dev\/token\//i.test(String(m?.url || '')));
+    return all.some((m) => /(secure-signed\.pages\.dev|rapidcdn\.app|snapcdn\.app|tiktok\.com|tiktokcdn|capcutvod\.com|fbcdn\.net|cdninstagram\.com|googlevideo\.com|kyzzz\.xyz)/i.test(String(m?.url || '')));
   } catch { return false; }
 }
 
@@ -1029,9 +1106,26 @@ export async function searchVideos(q, max = 10) {
   q = String(q || '').trim().slice(0, 100);
   if (!q) return { ok: false, status: 400, error: 'Kata kunci pencarian kosong.' };
   max = Math.min(Math.max(parseInt(max) || 10, 1), 20);
+  if (NEXA_ENABLED) {
+    try {
+      const j = await nexaFetchJson(`/tools/ytsearch/?q=${encodeURIComponent(q)}`, 20000);
+      const list = Array.isArray(j?.result) ? j.result : (Array.isArray(j?.data) ? j.data : []);
+      if (j && j.status === true && list.length) {
+        const items = list.slice(0, max).map((e) => ({
+          title: e.title || 'Tanpa judul',
+          thumbnail: e.imageUrl || e.thumbnail || null,
+          duration: null,
+          duration_label: e.duration || '-',
+          url: e.link || e.url || (e.video_id ? `https://www.youtube.com/watch?v=${e.video_id}` : null),
+          channel: e.channel || e.author || null,
+        })).filter((i) => i.url);
+        if (items.length) return { ok: true, items };
+      }
+    } catch {}
+  }
   if (XRINA_ENABLED) {
     try {
-      const j = await xrinaFetchJson(`/search/ytsearch?q=${encodeURIComponent(q)}`, 30000);
+      const j = await xrinaFetchJson(`/search/ytsearch?q=${encodeURIComponent(q)}`, 15000);
       if (j && j.status === true && Array.isArray(j.data) && j.data.length) {
         const items = j.data.slice(0, max).map((e) => ({
           title: e.title || 'Tanpa judul',
@@ -1062,7 +1156,7 @@ export async function searchVideos(q, max = 10) {
 export const XRINA_API_BASE = (process.env.XRINA_API_BASE || 'https://apiii-xrina.my.id').replace(/\/$/, '');
 const XRINA_ENABLED = process.env.XRINA_ENABLED !== '0';
 
-async function xrinaFetchJson(endpointPath, timeoutMs = 45000) {
+async function xrinaFetchJson(endpointPath, timeoutMs = 15000) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -1073,12 +1167,13 @@ async function xrinaFetchJson(endpointPath, timeoutMs = 45000) {
         headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json' },
       });
       clearTimeout(t);
+      if (res.status === 403 || res.status === 401) return null;
       const j = await res.json().catch(() => null);
       if (j && typeof j === 'object') return j;
     } catch {
       clearTimeout(t);
     }
-    if (attempt === 0) await sleep(1500);
+    if (attempt === 0) await sleep(800);
   }
   return null;
 }
@@ -1433,70 +1528,92 @@ export async function fetchXrinaFacebook(url) {
   } catch { return null; }
 }
 
-// 6. Twitter / X: /download/twitterdl?url=...
+// 6. Twitter / X: fxtwitter (cepat & bebas Cloudflare) + fallback /download/twitterdl & /api/aio
 export async function fetchXrinaTwitter(url) {
   try {
     const idMatch = String(url).match(/\/status\/(\d+)/i);
     const tweetId = idMatch ? idMatch[1] : null;
-    const [j, fxMeta] = await Promise.all([
-      xrinaFetchJson(`/download/twitterdl?url=${encodeURIComponent(url)}`),
-      tweetId ? (async () => {
-        try {
-          const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort(), 4500);
-          const r = await fetch(`https://api.fxtwitter.com/i/status/${tweetId}`, { signal: ctrl.signal, headers: { 'User-Agent': BROWSER_UA } });
-          clearTimeout(t);
-          if (!r.ok) return null;
+    let fxMeta = null;
+    if (tweetId) {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 6000);
+        const r = await fetch(`https://api.fxtwitter.com/i/status/${tweetId}`, {
+          signal: ctrl.signal,
+          headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json' },
+        });
+        clearTimeout(t);
+        if (r.ok) {
           const fj = await r.json();
-          return fj?.tweet || null;
-        } catch { return null; }
-      })() : Promise.resolve(null),
-    ]);
-
-    const d = (j && j.status === true && j.data) ? j.data : {};
-    const results = Array.isArray(d.results) ? d.results : (Array.isArray(d.media) ? d.media : []);
+          fxMeta = fj?.tweet || null;
+        }
+      } catch {}
+    }
 
     const items = [];
     const seen = new Set();
-    results.slice(0, 10).forEach((it, i) => {
-      const src = typeof it === 'string' ? it : (it?.downloadLink || it?.url || it?.download_url);
-      if (!src || typeof src !== 'string' || !src.startsWith('http') || seen.has(src)) return;
-      seen.add(src);
-      const ty = String(it?.type || '').toLowerCase();
-      const looksImg = /jpe?g|png|webp|gif|image|photo/.test(ty) || /\.(jpe?g|png|webp|gif)(\?|#|$)/i.test(src);
-      items.push({
-        type: looksImg ? 'image' : 'video',
-        url: src,
-        quality: it?.quality || (looksImg ? `Foto ${i + 1}` : 'HD'),
-        extension: looksImg ? 'jpg' : 'mp4',
-        has_audio: !looksImg,
-      });
-    });
 
-    // Jika /download/twitterdl kosong untuk tweet foto, ambil dari fxtwitter
-    if (!items.length && fxMeta?.media) {
+    // 1) Utamakan fxtwitter karena langsung memberi MP4 multi-resolusi (720p/360p/270p) & foto orig
+    if (fxMeta?.media) {
       const fxVids = Array.isArray(fxMeta.media.videos) ? fxMeta.media.videos : [];
       const fxPhotos = Array.isArray(fxMeta.media.photos) ? fxMeta.media.photos : [];
       fxVids.forEach((v) => {
-        if (v?.url && !seen.has(v.url)) {
+        const variants = Array.isArray(v?.variants)
+          ? v.variants.filter((vr) => vr?.url && /mp4/i.test(vr.content_type || vr.url)).sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
+          : [];
+        if (variants.length) {
+          variants.forEach((vr, idx) => {
+            if (!vr.url || seen.has(vr.url)) return;
+            seen.add(vr.url);
+            const resM = vr.url.match(/\/(\d+x\d+)\//);
+            const qLabel = resM ? `${resM[1]}${idx === 0 ? ' HD' : ''}` : (idx === 0 ? 'HD MP4' : `SD ${idx + 1}`);
+            items.push({ type: 'video', url: vr.url, preview_url: variants[0].url, src_url: url, src_api: 'twitter', quality: qLabel, extension: 'mp4', has_audio: true });
+          });
+        } else if (v?.url && !seen.has(v.url)) {
           seen.add(v.url);
-          items.push({ type: 'video', url: v.url, quality: v.width && v.height ? `${v.width}x${v.height}` : 'HD', extension: 'mp4', has_audio: true });
+          items.push({ type: 'video', url: v.url, preview_url: v.url, src_url: url, src_api: 'twitter', quality: v.width && v.height ? `${v.width}x${v.height} HD` : 'HD', extension: 'mp4', has_audio: true });
         }
       });
       fxPhotos.forEach((p, i) => {
         if (p?.url && !seen.has(p.url)) {
           seen.add(p.url);
-          items.push({ type: 'image', url: p.url, quality: `Foto ${i + 1}`, extension: 'jpg', has_audio: false });
+          items.push({ type: 'image', url: p.url, preview_url: p.url, src_url: url, src_api: 'twitter', quality: `Foto HD ${i + 1}`, extension: 'jpg', has_audio: false });
         }
       });
     }
+
+    // 2) Jika fxtwitter belum dapat, coba Xrina /download/twitterdl
+    let d = {};
+    if (!items.length && XRINA_ENABLED) {
+      const j = await xrinaFetchJson(`/download/twitterdl?url=${encodeURIComponent(url)}`, 12000);
+      d = (j && j.status === true && j.data) ? j.data : {};
+      const results = Array.isArray(d.results) ? d.results : (Array.isArray(d.media) ? d.media : []);
+      results.slice(0, 10).forEach((it, i) => {
+        const src = typeof it === 'string' ? it : (it?.downloadLink || it?.url || it?.download_url);
+        if (!src || typeof src !== 'string' || !src.startsWith('http') || seen.has(src)) return;
+        seen.add(src);
+        const ty = String(it?.type || '').toLowerCase();
+        const looksImg = /jpe?g|png|webp|gif|image|photo/.test(ty) || /\.(jpe?g|png|webp|gif)(\?|#|$)/i.test(src);
+        items.push({
+          type: looksImg ? 'image' : 'video',
+          url: src,
+          preview_url: src,
+          src_url: url,
+          src_api: 'twitter',
+          quality: it?.quality || (looksImg ? `Foto ${i + 1}` : 'HD'),
+          extension: looksImg ? 'jpg' : 'mp4',
+          has_audio: !looksImg,
+        });
+      });
+    }
+
     if (!items.length) return null;
 
     const fxThumb = fxMeta?.media?.videos?.[0]?.thumbnail_url || fxMeta?.media?.photos?.[0]?.url || null;
     const fxDur = fxMeta?.media?.videos?.[0]?.duration ? Math.round(fxMeta.media.videos[0].duration) : null;
     const thumb = d.thumbnail || fxThumb || null;
 
-    const sizes = await Promise.all(items.map((m) => probeSize(m.url, 6000)));
+    const sizes = await Promise.all(items.map((m) => probeSize(m.url, 5000)));
     const video = [], audio = [], image = [];
     items.forEach((m, i) => {
       const sz = sizes[i] || null;
@@ -1531,6 +1648,103 @@ export async function fetchXrinaTwitter(url) {
   } catch { return null; }
 }
 
+// Fallback TikTok via api.nexadev.my.id/api/snaptik
+export async function fetchNexaSnapTik(url) {
+  try {
+    const j = await nexaFetchJson(`/api/snaptik/?url=${encodeURIComponent(url)}`, 20000);
+    const links = Array.isArray(j?.download_links) ? j.download_links : [];
+    if (!j || j.status !== true || !links.length) return null;
+    const thumb = j.thumbnail || null;
+    const video = [], audio = [], image = [];
+    const seen = new Set();
+    for (const l of links) {
+      const src = l?.url;
+      if (!src || typeof src !== 'string' || !src.startsWith('http') || seen.has(src)) continue;
+      seen.add(src);
+      const tStr = String(l.type || '').toLowerCase();
+      if (/mp3|audio/i.test(tStr)) {
+        audio.push({
+          type: 'audio', url: src, preview_url: src, src_url: url, src_api: 'tiktok',
+          quality: 'Original Sound (MP3)', extension: 'mp3', filesize: null, filesize_label: 'MP3 Audio',
+          thumbnail: thumb, has_audio: true,
+        });
+      } else {
+        const isHd = /hd/i.test(tStr);
+        video.push({
+          type: 'video', url: src, preview_url: src, src_url: url, src_api: 'tiktok',
+          quality: isHd ? 'Full HD • No WM' : 'HD • No WM', extension: 'mp4', filesize: null, filesize_label: isHd ? 'Full HD' : 'MP4 HD',
+          thumbnail: thumb, has_audio: true,
+        });
+      }
+    }
+    if (!video.length && !audio.length) return null;
+    return {
+      source: 'nexadev-snaptik',
+      downloads: { video, audio, image, subtitles: [] },
+      info: {
+        title: j.title || 'TikTok Video',
+        thumbnail: thumb,
+        duration: null,
+        duration_label: '-',
+        uploader: 'TikTok',
+        platform: 'TikTok',
+        webpage_url: url,
+      },
+    };
+  } catch { return null; }
+}
+
+// Fallback All-in-One via api.nexadev.my.id/api/aio
+export async function fetchNexaAio(url, forcedPlatform = null) {
+  try {
+    const j = await nexaFetchJson(`/api/aio?url=${encodeURIComponent(url)}`, 25000);
+    const rawList = Array.isArray(j?.data) ? j.data : [];
+    if (!j || j.status !== true || !rawList.length) return null;
+    const video = [], audio = [], image = [];
+    const seen = new Set();
+    rawList.slice(0, 10).forEach((it, i) => {
+      const src = typeof it === 'string' ? it : it?.url;
+      if (!src || typeof src !== 'string' || !src.startsWith('http') || seen.has(src)) return;
+      seen.add(src);
+      const ty = String(it?.type || '').toLowerCase();
+      const q = String(it?.quality || '').trim();
+      const isAud = /mp3|audio|m4a/i.test(ty) || /audio|mp3/i.test(q);
+      const isImg = !isAud && (/jpg|jpeg|png|webp|image|photo/i.test(ty) || /\.(jpe?g|png|webp)(\?|$)/i.test(src));
+      const item = {
+        type: isAud ? 'audio' : isImg ? 'image' : 'video',
+        url: src,
+        preview_url: src,
+        src_url: url,
+        src_api: 'aio',
+        quality: q || (isAud ? 'Audio MP3' : isImg ? `Foto HD ${i + 1}` : (i === 0 ? 'HD MP4' : `Video ${i + 1}`)),
+        extension: isAud ? 'mp3' : isImg ? 'jpg' : 'mp4',
+        filesize: null,
+        filesize_label: q || (isAud ? 'MP3' : isImg ? 'Foto' : 'MP4'),
+        thumbnail: isImg ? src : (j.thumbnail || null),
+        has_audio: !isImg,
+      };
+      if (isAud) audio.push(item);
+      else if (isImg) image.push(item);
+      else video.push(item);
+    });
+    if (!video.length && !audio.length && !image.length) return null;
+    const plat = forcedPlatform || platformFromUrl(url);
+    return {
+      source: 'nexadev-aio',
+      downloads: { video, audio, image, subtitles: [] },
+      info: {
+        title: j.title || `${plat} Media`,
+        thumbnail: j.thumbnail || image[0]?.url || null,
+        duration: null,
+        duration_label: '-',
+        uploader: plat,
+        platform: plat,
+        webpage_url: url,
+      },
+    };
+  } catch { return null; }
+}
+
 // Fallback All-in-One via apiii-xrina.my.id (/download/aio & /download/aio2)
 export async function fetchXrinaAio(url, forcedPlatform = null) {
   try {
@@ -1552,6 +1766,9 @@ export async function fetchXrinaAio(url, forcedPlatform = null) {
         items.push({
           type: isAudio ? 'audio' : isImg ? 'image' : 'video',
           url: src,
+          preview_url: src,
+          src_url: url,
+          src_api: 'aio',
           quality: lbl.replace(/^Download\s*/i, '').replace(/^\((.*)\)$/, '$1').trim() || (isAudio ? 'Audio MP3' : isImg ? `Foto ${i + 1}` : 'HD'),
           extension: isAudio ? 'mp3' : isImg ? 'jpg' : (ext || 'mp4'),
           has_audio: !isImg,
@@ -1615,15 +1832,36 @@ export async function fetchXrina(url) {
       if (snapIg) return snapIg;
       const nexaIg = await fetchNexa(url);
       if (nexaIg) return nexaIg;
+      const aioIg = await fetchNexaAio(url, 'Instagram');
+      if (aioIg) return aioIg;
+    }
+    if (isTikTokUrl(url)) {
+      const twm = await fetchTikWmFallback(url);
+      if (twm) return twm;
+      const snaptik = await fetchNexaSnapTik(url);
+      if (snaptik) return snaptik;
+    }
+    if (isFacebookUrl(url)) {
+      const nexaFb = await fetchNexa(url);
+      if (nexaFb) return nexaFb;
+      const aioFb = await fetchNexaAio(url, 'Facebook');
+      if (aioFb) return aioFb;
     }
   }
-  if (!XRINA_ENABLED) return null;
+  if (isTwitterUrl(url)) {
+    const tw = await fetchXrinaTwitter(url);
+    if (tw) return tw;
+    if (NEXA_ENABLED) {
+      const aioTw = await fetchNexaAio(url, 'X (Twitter)');
+      if (aioTw) return aioTw;
+    }
+  }
+  if (!XRINA_ENABLED) return NEXA_ENABLED ? fetchNexaAio(url) : null;
   if (isTikTokUrl(url)) return fetchXrinaTikTok(url);
   if (isInstagramUrl(url)) return fetchXrinaInstagram(url);
   if (isYouTubeUrl(url) && !isYouTubePlaylistOnlyUrl(url)) return fetchXrinaYouTube(url);
   if (isFacebookUrl(url)) return fetchXrinaFacebook(url);
-  if (isTwitterUrl(url)) return fetchXrinaTwitter(url);
-  return fetchXrinaAio(url);
+  return (NEXA_ENABLED && (await fetchNexaAio(url))) || fetchXrinaAio(url);
 }
 
 // Ambil URL MP3 langsung via NexaDev / Xrina API
@@ -2041,28 +2279,35 @@ export async function fetchNexaPinterest(url) {
   } catch { return null; }
 }
 
+function extractYouTubeId(rawUrl) {
+  const s = String(rawUrl || '').trim();
+  const m = s.match(/(?:[?&]v=|youtu\.be\/|\/embed\/|\/shorts\/|\/live\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
 // 4. YouTube (YTMP4): GET https://api.nexadev.my.id/api/ytmp4?url=...&type=video&quality=720p
 export async function fetchNexaYouTube(url) {
   try {
-    const [j720, xrinaMp3] = await Promise.all([
-      nexaFetchJson(`/api/ytmp4?url=${encodeURIComponent(url)}&type=video&quality=720p`, 45000),
-      XRINA_ENABLED ? fetchXrinaYouTubeMp3(url) : Promise.resolve(null),
-    ]);
+    const videoId = extractYouTubeId(url);
+    const embedUrl = videoId ? `https://www.youtube.com/embed/${videoId}?playsinline=1&rel=0` : null;
 
+    const j720 = await nexaFetchJson(`/api/ytmp4?url=${encodeURIComponent(url)}&type=video&quality=720p`, 40000);
     const mb720 = parseSizeMb(j720?.data?.size);
     const need360 = !j720?.data?.url || mb720 > 100;
     const j360 = need360
       ? await nexaFetchJson(`/api/ytmp4?url=${encodeURIComponent(url)}&type=video&quality=360p`, 35000)
       : null;
-    const jAudio = (!xrinaMp3?.audio_url)
+
+    const hasVideo = (j720?.status === true && j720?.data?.url) || (j360?.status === true && j360?.data?.url);
+    const jAudio = !hasVideo
       ? await nexaFetchJson(`/api/ytmp4?url=${encodeURIComponent(url)}&type=audio&quality=128kbps`, 35000)
       : null;
 
     const meta = (j720?.status === true && j720) || (j360?.status === true && j360) || (jAudio?.status === true && jAudio) || null;
-    if (!meta && !xrinaMp3) return null;
+    if (!meta) return null;
 
-    const thumb = meta?.thumbnail || null;
-    const title = meta?.title || xrinaMp3?.title || 'YouTube Video';
+    const thumb = meta?.thumbnail || (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null);
+    const title = meta?.title || 'YouTube Video';
     const durLabel = meta?.fduration || meta?.duration || '-';
     const uploader = meta?.channel || 'YouTube';
 
@@ -2076,6 +2321,7 @@ export async function fetchNexaYouTube(url) {
         type: 'video',
         url: j720.data.url,
         preview_url: preview360Url || j720.data.url,
+        embed_url: embedUrl,
         src_url: url,
         src_api: 'ytmp4',
         src_q: '720p',
@@ -2094,6 +2340,7 @@ export async function fetchNexaYouTube(url) {
         type: 'video',
         url: j360.data.url,
         preview_url: j360.data.url,
+        embed_url: embedUrl,
         src_url: url,
         src_api: 'ytmp4',
         src_q: '360p',
@@ -2113,13 +2360,14 @@ export async function fetchNexaYouTube(url) {
     // Jika semua stream NexaDev > 100MB (batas Cloudflare Pages signed token pada video >40 menit),
     // tambahkan stream MP4 langsung dari sf-converter via /download/ytmp4?quality=480
     if (XRINA_ENABLED && rawVideos.length && rawVideos.every((v) => v._mb > 100)) {
-      const xr480 = await xrinaFetchJson(`/download/ytmp4?url=${encodeURIComponent(url)}&quality=480`, 25000);
+      const xr480 = await xrinaFetchJson(`/download/ytmp4?url=${encodeURIComponent(url)}&quality=480`, 20000);
       const dl480 = xr480?.data?.download_url || xr480?.data?.url;
       if (xr480?.status === true && dl480 && String(dl480).startsWith('http') && !/googlevideo\.com/i.test(dl480)) {
         rawVideos.unshift({
           type: 'video',
           url: dl480,
           preview_url: dl480,
+          embed_url: embedUrl,
           src_url: url,
           src_api: 'ytmp4',
           src_q: '480p',
@@ -2136,21 +2384,7 @@ export async function fetchNexaYouTube(url) {
     const video = rawVideos.map(({ _mb, ...rest }) => rest);
 
     const audio = [];
-    if (xrinaMp3?.audio_url) {
-      audio.push({
-        type: 'audio',
-        url: xrinaMp3.audio_url,
-        preview_url: xrinaMp3.audio_url,
-        src_url: url,
-        src_api: 'ytmp4_audio',
-        quality: 'MP3 • 128kbps',
-        extension: 'mp3',
-        filesize: xrinaMp3.filesize,
-        filesize_label: xrinaMp3.filesize_label,
-        thumbnail: thumb,
-        has_audio: true,
-      });
-    } else if (jAudio?.status === true && jAudio?.data?.url) {
+    if (jAudio?.status === true && jAudio?.data?.url) {
       audio.push({
         type: 'audio',
         url: jAudio.data.url,
@@ -2162,6 +2396,20 @@ export async function fetchNexaYouTube(url) {
         extension: 'mp3',
         filesize: parseSizeBytes(jAudio.data.size) || null,
         filesize_label: jAudio.data.size || 'MP3',
+        thumbnail: thumb,
+        has_audio: true,
+      });
+    } else {
+      audio.push({
+        type: 'audio',
+        url: `${NEXA_API_BASE}/api/ytmp4?url=${encodeURIComponent(url)}&type=audio&quality=128kbps`,
+        src_url: url,
+        src_api: 'ytmp4_audio',
+        src_q: '128kbps',
+        quality: 'MP3 • 128kbps',
+        extension: 'mp3',
+        filesize: null,
+        filesize_label: 'MP3 Audio',
         thumbnail: thumb,
         has_audio: true,
       });
@@ -2179,6 +2427,8 @@ export async function fetchNexaYouTube(url) {
         uploader,
         platform: 'YouTube',
         webpage_url: url,
+        video_id: videoId,
+        embed_url: embedUrl,
         has_split: false,
         merge_heights: [],
       },
@@ -2191,16 +2441,18 @@ export async function fetchNexaYtVideo(query) {
   const q = String(query || '').replace(/^ytvideo:/i, '').trim();
   if (!q) return null;
   try {
-    const j = await nexaFetchJson(`/api/ytvideo?q=${encodeURIComponent(q)}`, 45000);
+    const j = await nexaFetchJson(`/api/ytvideo?q=${encodeURIComponent(q)}`, 40000);
     if (!j || j.status !== true || !j.data?.url) return null;
     const ytUrl = j.id ? `https://www.youtube.com/watch?v=${j.id}` : `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
-    const thumb = j.thumbnail || (j.id ? `https://i.ytimg.com/vi/${j.id}/hqdefault.jpg` : null);
-    const xrinaMp3 = (XRINA_ENABLED && j.id) ? await fetchXrinaYouTubeMp3(ytUrl) : null;
+    const videoId = j.id || extractYouTubeId(ytUrl);
+    const embedUrl = videoId ? `https://www.youtube.com/embed/${videoId}?playsinline=1&rel=0` : null;
+    const thumb = j.thumbnail || (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null);
 
     const video = [{
       type: 'video',
       url: j.data.url,
       preview_url: j.data.url,
+      embed_url: embedUrl,
       src_url: ytUrl,
       src_api: 'ytvideo',
       src_q: q,
@@ -2212,22 +2464,19 @@ export async function fetchNexaYtVideo(query) {
       has_audio: true,
     }];
 
-    const audio = [];
-    if (xrinaMp3?.audio_url) {
-      audio.push({
-        type: 'audio',
-        url: xrinaMp3.audio_url,
-        preview_url: xrinaMp3.audio_url,
-        src_url: ytUrl,
-        src_api: 'ytmp4_audio',
-        quality: 'MP3 • 128kbps',
-        extension: 'mp3',
-        filesize: xrinaMp3.filesize,
-        filesize_label: xrinaMp3.filesize_label,
-        thumbnail: thumb,
-        has_audio: true,
-      });
-    }
+    const audio = [{
+      type: 'audio',
+      url: `${NEXA_API_BASE}/api/ytmp4?url=${encodeURIComponent(ytUrl)}&type=audio&quality=128kbps`,
+      src_url: ytUrl,
+      src_api: 'ytmp4_audio',
+      src_q: q,
+      quality: 'MP3 • 128kbps',
+      extension: 'mp3',
+      filesize: null,
+      filesize_label: 'MP3 Audio',
+      thumbnail: thumb,
+      has_audio: true,
+    }];
 
     return {
       source: 'nexadev-ytvideo',
@@ -2240,6 +2489,8 @@ export async function fetchNexaYtVideo(query) {
         uploader: j.channel || 'YouTube',
         platform: 'YT Video',
         webpage_url: ytUrl,
+        video_id: videoId,
+        embed_url: embedUrl,
         views: j.views || null,
       },
       original_url: ytUrl,
@@ -2345,6 +2596,8 @@ export async function fetchNexaSnapSave(url) {
         type: 'audio',
         url: u,
         preview_url: u,
+        src_url: url,
+        src_api: 'sanapsave',
         quality: 'Audio MP3',
         extension: 'mp3',
         filesize: null,
@@ -2384,8 +2637,24 @@ async function refreshSignedDownloadUrl({ src_api, src_url, src_q, ext, hit413 }
       const j = await nexaFetchJson(`/api/spotify?url=${encodeURIComponent(src_url)}`, 25000);
       if (j?.data?.url) return j.data.url;
     }
-    if (src_api === 'ytvideo' && src_q) {
-      if (!hit413) {
+    if (src_api === 'pin' && src_url) {
+      const p = await fetchNexaPinterest(src_url);
+      if (ext === 'mp4' && p?.downloads?.video?.[0]?.url) return p.downloads.video[0].url;
+      if (p?.downloads?.image?.[0]?.url) return p.downloads.image[0].url;
+      if (p?.downloads?.video?.[0]?.url) return p.downloads.video[0].url;
+    }
+    if (src_api === 'ytvideo' && (src_q || src_url)) {
+      if (ext === 'mp3') {
+        if (src_url && isYouTubeUrl(src_url)) {
+          const jA = await nexaFetchJson(`/api/ytmp4?url=${encodeURIComponent(src_url)}&type=audio&quality=128kbps`, 30000);
+          if (jA?.data?.url) return jA.data.url;
+        }
+        if (src_q) {
+          const jPlay = await nexaFetchJson(`/api/ytplay/?q=${encodeURIComponent(src_q)}`, 25000);
+          if (jPlay?.data?.url) return jPlay.data.url;
+        }
+      }
+      if (!hit413 && src_q) {
         const j = await nexaFetchJson(`/api/ytvideo?q=${encodeURIComponent(src_q)}`, 30000);
         if (j?.data?.url && parseSizeMb(j.data.size) <= 100) return j.data.url;
       }
@@ -2394,13 +2663,21 @@ async function refreshSignedDownloadUrl({ src_api, src_url, src_q, ext, hit413 }
         if (j360?.data?.url && parseSizeMb(j360.data.size) <= 100) return j360.data.url;
       }
     }
-    if ((src_api === 'ytmp4' || src_api === 'ytmp4_audio') && src_url) {
+    if ((src_api === 'ytmp4' || src_api === 'ytmp4_audio') && (src_url || src_q)) {
       if (src_api === 'ytmp4_audio' || ext === 'mp3') {
-        const jA = await nexaFetchJson(`/api/ytmp4?url=${encodeURIComponent(src_url)}&type=audio&quality=128kbps`, 30000);
-        if (jA?.data?.url && parseSizeMb(jA.data.size) <= 100) return jA.data.url;
-        const xrA = await fetchXrinaYouTubeMp3(src_url);
-        if (xrA?.audio_url) return xrA.audio_url;
-      } else {
+        if (src_url && isYouTubeUrl(src_url)) {
+          const jA = await nexaFetchJson(`/api/ytmp4?url=${encodeURIComponent(src_url)}&type=audio&quality=128kbps`, 30000);
+          if (jA?.data?.url && parseSizeMb(jA.data.size) <= 100) return jA.data.url;
+        }
+        if (src_q && src_q !== '128kbps' && src_q !== '720p' && src_q !== '360p') {
+          const jPlay = await nexaFetchJson(`/api/ytplay/?q=${encodeURIComponent(src_q)}`, 25000);
+          if (jPlay?.data?.url) return jPlay.data.url;
+        }
+        if (src_url) {
+          const xrA = await fetchXrinaYouTubeMp3(src_url);
+          if (xrA?.audio_url) return xrA.audio_url;
+        }
+      } else if (src_url) {
         const wantQ = hit413 ? '360p' : (src_q || '720p');
         const jV = await nexaFetchJson(`/api/ytmp4?url=${encodeURIComponent(src_url)}&type=video&quality=${encodeURIComponent(wantQ)}`, 30000);
         if (jV?.data?.url && parseSizeMb(jV.data.size) <= 100) return jV.data.url;
@@ -2408,8 +2685,7 @@ async function refreshSignedDownloadUrl({ src_api, src_url, src_q, ext, hit413 }
           const j360 = await nexaFetchJson(`/api/ytmp4?url=${encodeURIComponent(src_url)}&type=video&quality=360p`, 30000);
           if (j360?.data?.url && parseSizeMb(j360.data.size) <= 100) return j360.data.url;
         }
-        // Jika video >40 menit sehingga 360p pun >100MB di Cloudflare Pages, ambil stream MP4 langsung dari sf-converter via /download/ytmp4?quality=480
-        const xr480 = await xrinaFetchJson(`/download/ytmp4?url=${encodeURIComponent(src_url)}&quality=480`, 25000);
+        const xr480 = await xrinaFetchJson(`/download/ytmp4?url=${encodeURIComponent(src_url)}&quality=480`, 20000);
         const dl480 = xr480?.data?.download_url || xr480?.data?.url;
         if (xr480?.status === true && dl480 && String(dl480).startsWith('http') && !/googlevideo\.com/i.test(dl480)) {
           return dl480;
@@ -2418,10 +2694,32 @@ async function refreshSignedDownloadUrl({ src_api, src_url, src_q, ext, hit413 }
         if (xrA?.audio_url) return xrA.audio_url;
       }
     }
-    if (src_api === 'sanapsave' && src_url) {
-      const s = await fetchNexaSnapSave(src_url);
+    if ((src_api === 'sanapsave' || src_api === 'ig') && src_url) {
+      const s = (await fetchNexaSnapSave(src_url)) || (await fetchNexa(src_url)) || (await fetchNexaAio(src_url, 'Instagram'));
+      if (ext === 'jpg' && s?.downloads?.image?.[0]?.url) return s.downloads.image[0].url;
       if (s?.downloads?.video?.[0]?.url) return s.downloads.video[0].url;
       if (s?.downloads?.image?.[0]?.url) return s.downloads.image[0].url;
+    }
+    if (src_api === 'tiktok' && src_url) {
+      const t = (await fetchTikWmFallback(src_url)) || (await fetchNexaSnapTik(src_url));
+      if (ext === 'mp3' && t?.downloads?.audio?.[0]?.url) return t.downloads.audio[0].url;
+      if (ext === 'jpg' && t?.downloads?.image?.[0]?.url) return t.downloads.image[0].url;
+      if (t?.downloads?.video?.[0]?.url) return t.downloads.video[0].url;
+    }
+    if (src_api === 'fb' && src_url) {
+      const fb = (await fetchNexa(src_url)) || (await fetchNexaAio(src_url, 'Facebook'));
+      if (fb?.downloads?.video?.[0]?.url) return fb.downloads.video[0].url;
+    }
+    if (src_api === 'twitter' && src_url) {
+      const tw = await fetchXrinaTwitter(src_url);
+      if (ext === 'jpg' && tw?.downloads?.image?.[0]?.url) return tw.downloads.image[0].url;
+      if (tw?.downloads?.video?.[0]?.url) return tw.downloads.video[0].url;
+    }
+    if (src_api === 'aio' && src_url) {
+      const aio = await fetchNexaAio(src_url);
+      if (aio?.downloads?.video?.[0]?.url) return aio.downloads.video[0].url;
+      if (aio?.downloads?.audio?.[0]?.url) return aio.downloads.audio[0].url;
+      if (aio?.downloads?.image?.[0]?.url) return aio.downloads.image[0].url;
     }
   } catch {}
   return null;
@@ -2466,7 +2764,7 @@ export async function fetchNexa(url) {
     let j = null;
     for (let attempt = 0; attempt < 2 && !j; attempt++) {
       const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 45000);
+      const t = setTimeout(() => ctrl.abort(), 30000);
       try {
         const res = await fetch(`${NEXA_API_BASE}${isIG ? '/api/ig?url=' : '/api/fb?url='}${encodeURIComponent(url)}`, {
           signal: ctrl.signal, redirect: 'follow',
@@ -2475,7 +2773,7 @@ export async function fetchNexa(url) {
         clearTimeout(t);
         j = await res.json().catch(() => null);
       } catch { clearTimeout(t); }
-      if (!j && attempt === 0) await sleep(2000);
+      if (!j && attempt === 0) await sleep(1200);
     }
     if (!j || j.status !== true || !Array.isArray(j.data) || !j.data.length) return null;
     const items = [];
@@ -2486,11 +2784,11 @@ export async function fetchNexa(url) {
       seen.add(src);
       if (isFB) {
         const q = String(it.quality || '').toUpperCase();
-        items.push({ type: 'video', url: src, quality: q === 'HD' ? 'HD 720p' : q === 'SD' ? 'SD 360p' : (it.quality || `Video ${i + 1}`), extension: extFromUrl(src, 'mp4'), has_audio: true });
+        items.push({ type: 'video', url: src, preview_url: src, src_url: url, src_api: 'fb', quality: q === 'HD' ? 'HD 720p' : q === 'SD' ? 'SD 360p' : (it.quality || `Video ${i + 1}`), extension: extFromUrl(src, 'mp4'), has_audio: true });
       } else {
         const ty = String(it.type || '').toLowerCase();
         const looksImg = /jpe?g|png|webp|gif|bmp|image|photo|picture/.test(ty) || /\.(jpe?g|png|webp|gif|bmp)(\?|#|$)/i.test(src);
-        items.push({ type: looksImg ? 'image' : 'video', url: src, quality: looksImg ? `Foto ${i + 1}` : 'HD', extension: extFromUrl(src, looksImg ? 'jpg' : 'mp4'), has_audio: !looksImg });
+        items.push({ type: looksImg ? 'image' : 'video', url: src, preview_url: src, src_url: url, src_api: 'sanapsave', quality: looksImg ? `Foto ${i + 1}` : 'HD', extension: extFromUrl(src, looksImg ? 'jpg' : 'mp4'), has_audio: !looksImg });
       }
     });
     if (!items.length) return null;
@@ -3043,12 +3341,61 @@ const EXT_MIME = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
 };
 
+const usedSignedTokens = new Set();
+function markSignedTokenUsed(u) {
+  if (!/secure-signed\.pages\.dev\/token\//i.test(String(u || ''))) return;
+  if (usedSignedTokens.size > 1000) {
+    const first = usedSignedTokens.keys().next().value;
+    usedSignedTokens.delete(first);
+  }
+  usedSignedTokens.add(u);
+}
+
+function getRefererForCdn(u) {
+  const s = String(u || '').toLowerCase();
+  if (s.includes('secure-signed.pages.dev') || s.includes('rapidcdn.app') || s.includes('snapcdn.app')) return null;
+  if (s.includes('twimg.com') || s.includes('twitter.com') || s.includes('x.com')) return 'https://x.com/';
+  if (s.includes('tiktokcdn') || s.includes('tiktok.com')) return 'https://www.tiktok.com/';
+  if (s.includes('capcutvod.com') || s.includes('capcut.com')) return 'https://www.capcut.com/';
+  if (s.includes('pinimg.com') || s.includes('pinterest.com')) return 'https://www.pinterest.com/';
+  if (s.includes('cdninstagram.com') || s.includes('instagram.com')) return 'https://www.instagram.com/';
+  if (s.includes('fbcdn.net') || s.includes('facebook.com')) return 'https://www.facebook.com/';
+  if (s.includes('scdn.co') || s.includes('spotifycdn.com')) return 'https://open.spotify.com/';
+  return null;
+}
+
+function isValidMediaResponse(resp) {
+  if (!resp || (!resp.ok && resp.status !== 206) || !resp.body) return false;
+  const rct = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (rct.includes('json') || rct.startsWith('text/html') || rct.startsWith('text/plain')) return false;
+  return true;
+}
+
+function sendDownloadError(req, res, status, message) {
+  if (res.headersSent) {
+    try { res.end(); } catch {}
+    return;
+  }
+  if (req.query?.ui === '1') {
+    const safeMsg = String(message || 'Gagal mengunduh file.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const jsonMsg = JSON.stringify(String(message || 'Gagal mengunduh file.'));
+    res.status(status);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.send(`<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ultra Downloader</title><style>body{font-family:system-ui,sans-serif;background:#0f0f12;color:#fff;display:flex;align-items:center;justify-content:center;min-height:90vh;margin:0;padding:16px}.box{background:#18181f;border:3px solid #fff;box-shadow:6px 6px 0 #ff3b5c;padding:24px;max-width:420px;text-align:center}button{margin-top:16px;padding:10px 20px;font-weight:800;background:#ffe600;color:#000;border:3px solid #000;cursor:pointer}</style></head><body><div class="box"><h3>Unduhan Gagal</h3><p>${safeMsg}</p><button onclick="if(window.history.length>1)history.back();else window.close();">Kembali</button></div><script>try{if(window.parent&&window.parent!==window){window.parent.postMessage({type:'ultra-dl-error',error:${jsonMsg}},'*');}}catch(e){}</script></body></html>`);
+  }
+  return res.status(status).json({ success: false, error: message });
+}
+
 // Proxy download langsung (bebas CORS) — pakai fetch bawaan Node + auto-unwrap & auto-refresh token
 export async function proxyDownload(req, res) {
-  if (!(await apiRateLimit(req, res, { max: 300, prefix: 'dl' }))) return;
+  if (!(await apiRateLimit(req, res, { max: 600, prefix: 'dl' }))) return;
   const t0 = Date.now();
   const v = validateTargetUrl(req.query?.url);
-  if (!v.ok) { logReq('download', 'cdn', false, Date.now() - t0, v.error); return res.status(400).json({ success: false, error: v.error }); }
+  if (!v.ok) {
+    logReq('download', 'cdn', false, Date.now() - t0, v.error);
+    return sendDownloadError(req, res, 400, v.error);
+  }
 
   let ext = String(req.query?.ext || 'mp4').replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 5) || 'mp4';
   const baseName = sanitizeFilename(req.query?.filename, 'download').replace(/\.\w{2,5}$/, '');
@@ -3056,17 +3403,47 @@ export async function proxyDownload(req, res) {
 
   try {
     let targetUrl = await unwrapSignedUrl(v.url);
-    const isSignedToken = /secure-signed\.pages\.dev\/token\//i.test(targetUrl);
 
-    const doUpstreamFetch = async (u, allowRange) => {
+    // Jika targetUrl masih berupa endpoint API on-demand (mis. ytmp4 audio), resolve dulu ke signed URL
+    if (/api\.nexadev\.my\.id\/api\/(ytmp4|ytplay|ytvideo)/i.test(targetUrl) && (req.query?.src_api || req.query?.src_url || req.query?.src_q)) {
+      const resolved = await refreshSignedDownloadUrl({
+        src_api: req.query?.src_api || 'ytmp4_audio',
+        src_url: req.query?.src_url || '',
+        src_q: req.query?.src_q || '',
+        ext,
+        hit413: false,
+      });
+      if (resolved) targetUrl = resolved;
+    }
+
+    let isSignedToken = /secure-signed\.pages\.dev\/token\//i.test(targetUrl);
+
+    // Jika signed token sudah pernah dipakai sebelumnya, langsung mint token baru agar tidak 502
+    if (isSignedToken && usedSignedTokens.has(targetUrl) && (req.query?.src_url || req.query?.src_q || req.query?.src_api)) {
+      const freshBefore = await refreshSignedDownloadUrl({
+        src_api: req.query?.src_api || 'ytmp4',
+        src_url: req.query?.src_url || '',
+        src_q: req.query?.src_q || '',
+        ext,
+        hit413: false,
+      });
+      if (freshBefore) {
+        targetUrl = freshBefore;
+        isSignedToken = /secure-signed\.pages\.dev\/token\//i.test(targetUrl);
+      }
+    }
+    if (isSignedToken) markSignedTokenUsed(targetUrl);
+
+    const doUpstreamFetch = async (u, allowRange, omitReferer = false) => {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 120000);
       const upHeaders = {
         'User-Agent': BROWSER_UA,
         Accept: '*/*',
       };
-      if (!/secure-signed\.pages\.dev/i.test(u)) {
-        upHeaders.Referer = 'https://www.google.com/';
+      if (!omitReferer) {
+        const ref = getRefererForCdn(u);
+        if (ref) upHeaders.Referer = ref;
       }
       if (allowRange && req.headers?.range) {
         upHeaders.Range = req.headers.range;
@@ -3085,18 +3462,24 @@ export async function proxyDownload(req, res) {
       }
     };
 
-    let up = await doUpstreamFetch(targetUrl, !isSignedToken || isInline);
+    let up = await doUpstreamFetch(targetUrl, !isSignedToken || isInline, false);
 
-    // Jika gagal dengan Range header pada signed token, ulangi tanpa Range
-    if (!up.ok && req.headers?.range) {
+    // Jika gagal dengan Referer (403/401), coba ulang tanpa Referer
+    if ((up.status === 403 || up.status === 401) && getRefererForCdn(targetUrl)) {
       try { await up.body?.cancel?.(); } catch {}
-      up = await doUpstreamFetch(targetUrl, false);
+      up = await doUpstreamFetch(targetUrl, !isSignedToken || isInline, true);
     }
 
-    // Jika signed token sekali-pakai / expired (502/404/403/413), mint token baru otomatis dari sumbernya
-    if ((!up.ok || !up.body) && (req.query?.src_api || isSignedToken)) {
-      const hit413 = up.status === 413;
+    // Jika gagal dengan Range header, ulangi tanpa Range
+    if (!isValidMediaResponse(up) && req.headers?.range) {
       try { await up.body?.cancel?.(); } catch {}
+      up = await doUpstreamFetch(targetUrl, false, false);
+    }
+
+    // Jika token sekali-pakai / expired / mengembalikan JSON error, mint URL baru otomatis dari sumbernya
+    if (!isValidMediaResponse(up) && (req.query?.src_api || req.query?.src_url || req.query?.src_q || isSignedToken)) {
+      const hit413 = up?.status === 413;
+      try { await up?.body?.cancel?.(); } catch {}
       const freshUrl = await refreshSignedDownloadUrl({
         src_api: req.query?.src_api || (isSignedToken ? 'ytmp4' : ''),
         src_url: req.query?.src_url || '',
@@ -3104,42 +3487,57 @@ export async function proxyDownload(req, res) {
         ext,
         hit413,
       });
-      if (freshUrl && freshUrl !== targetUrl) {
+      if (freshUrl) {
         targetUrl = freshUrl;
+        markSignedTokenUsed(targetUrl);
         if (/\.mp3(\?|$)/i.test(freshUrl) && ext === 'mp4') ext = 'mp3';
-        up = await doUpstreamFetch(targetUrl, false);
+        up = await doUpstreamFetch(targetUrl, false, false);
+        if ((up.status === 403 || up.status === 401) && getRefererForCdn(targetUrl)) {
+          try { await up.body?.cancel?.(); } catch {}
+          up = await doUpstreamFetch(targetUrl, false, true);
+        }
       }
     }
 
-    if (!up.ok || !up.body) {
-      if (up.status === 413) return res.status(502).json({ success: false, error: 'Ukuran file melebihi batas server CDN (100 MB). Pilih resolusi lebih rendah (360p) atau format Audio MP3.' });
-      if (up.status === 403 || up.status === 401) return res.status(502).json({ success: false, error: 'Link CDN kedaluwarsa / ditolak. Ulangi proses dari awal untuk link baru.' });
-      if (up.status === 404) return res.status(502).json({ success: false, error: 'File sumber sudah tidak tersedia (404).' });
-      return res.status(502).json({ success: false, error: 'Gagal mengambil file dari server sumber.' });
+    if (!isValidMediaResponse(up)) {
+      const st = up?.status || 502;
+      try { await up?.body?.cancel?.(); } catch {}
+      if (st === 413) return sendDownloadError(req, res, 502, 'Ukuran file melebihi batas server CDN (100 MB). Pilih resolusi lebih rendah (360p) atau format Audio MP3.');
+      if (st === 403 || st === 401) return sendDownloadError(req, res, 502, 'Link CDN kedaluwarsa / ditolak. Silakan klik Download Sekarang lagi untuk menyegarkan link.');
+      if (st === 404) return sendDownloadError(req, res, 502, 'File sumber sudah tidak tersedia (404).');
+      return sendDownloadError(req, res, 502, 'Gagal mengambil file dari server sumber. Silakan coba lagi.');
     }
 
     const filename = `${baseName}.${ext}`;
     if (up.status === 206) res.status(206);
     res.setHeader('Content-Disposition', `${isInline ? 'inline' : 'attachment'}; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    let ct = up.headers.get('content-type') || '';
-    if (!ct || /octet-stream/i.test(ct) || (ext === 'mp3' && /video\/mp4/i.test(ct))) {
-      ct = EXT_MIME[ext] || ct || 'application/octet-stream';
-    }
+    const rawCt = (up.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    const ct = EXT_MIME[ext] || ((!rawCt || /octet-stream/i.test(rawCt)) ? 'application/octet-stream' : rawCt);
     res.setHeader('Content-Type', ct);
     const cl = up.headers.get('content-length');
     if (cl) res.setHeader('Content-Length', cl);
     const cr = up.headers.get('content-range');
     if (cr) res.setHeader('Content-Range', cr);
     const ar = up.headers.get('accept-ranges');
-    if (ar) res.setHeader('Accept-Ranges', ar);
+    if (ar || cr || up.status === 206 || isInline) {
+      res.setHeader('Accept-Ranges', ar || 'bytes');
+    }
     const stream = Readable.fromWeb(up.body);
-    stream.on('error', () => { try { res.end(); } catch {} });
     if (typeof req.on === 'function') req.on('close', () => { try { stream.destroy(); } catch {} });
     logReq('download', 'cdn', true, Date.now() - t0);
-    stream.pipe(res);
+    await new Promise((resolve) => {
+      res.on('finish', resolve);
+      res.on('close', resolve);
+      stream.on('end', resolve);
+      stream.on('error', () => {
+        try { res.end(); } catch {}
+        resolve();
+      });
+      stream.pipe(res);
+    });
   } catch (e) {
-    if (!res.headersSent) res.status(502).json({ success: false, error: 'Gagal mengambil file dari server sumber.' });
-    else { try { res.end(); } catch {} }
+    if (!res.headersSent) return sendDownloadError(req, res, 502, 'Gagal mengambil file dari server sumber.');
+    try { res.end(); } catch {}
   }
 }
 

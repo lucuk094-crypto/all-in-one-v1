@@ -25,21 +25,36 @@ function toggleAutoDl() {
         ? (isEN() ? 'Auto-Download enabled!' : 'Auto-Download diaktifkan!')
         : (isEN() ? 'Auto-Download disabled.' : 'Auto-Download dinonaktifkan.'));
 }
+function startSmartDownload(dlUrl, label) {
+    if (!dlUrl) return;
+    var u = dlUrl.indexOf('ui=1') >= 0 ? dlUrl : (dlUrl + (dlUrl.indexOf('?') >= 0 ? '&' : '?') + 'ui=1');
+    toast((isEN() ? 'Downloading: ' : 'Mengunduh: ') + String(label || 'Media').slice(0, 42) + '...');
+    try {
+        var frame = document.getElementById('ultraDlFrame');
+        if (!frame) {
+            frame = document.createElement('iframe');
+            frame.id = 'ultraDlFrame';
+            frame.name = 'ultraDlFrame';
+            frame.style.display = 'none';
+            document.body.appendChild(frame);
+        }
+        frame.src = u;
+    } catch (e) {
+        window.location.href = u;
+    }
+}
 function triggerAutoDownload(dlUrl, label) {
     if (!dlUrl || !AUTO_DL) return;
-    toast((isEN() ? 'Auto-downloading: ' : 'Mengunduh otomatis: ') + String(label || 'Media').slice(0, 42) + '...');
     setTimeout(function () {
-        try {
-            var a = document.createElement('a');
-            a.href = dlUrl;
-            a.setAttribute('download', '');
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(function () { try { document.body.removeChild(a); } catch (e) {} }, 2500);
-        } catch (e) {}
-    }, 350);
+        if (!AUTO_DL) return;
+        startSmartDownload(dlUrl, label);
+    }, 900);
 }
+window.addEventListener('message', function (ev) {
+    if (ev && ev.data && ev.data.type === 'ultra-dl-error' && ev.data.error) {
+        toast(ev.data.error);
+    }
+});
 
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -329,6 +344,7 @@ function proxied(item, title, kind, inline) {
     var targetUrl = isObj ? (inline && item.preview_url ? item.preview_url : item.url) : String(item || '');
     var params = { url: targetUrl, filename: title, ext: ext };
     if (inline) params.inline = '1';
+    else params.ui = '1';
     if (isObj) {
         if (item.src_url) params.src_url = item.src_url;
         if (item.src_api) params.src_api = item.src_api;
@@ -356,13 +372,10 @@ function shortQ(v) {
 }
 function inlineMediaSrc(item, title, kind) {
     if (!item) return '';
-    if (kind === 'audio' && item.preview_url && !/rapidcdn\.app|secure-signed\.pages\.dev/i.test(item.preview_url)) {
+    if (kind === 'audio' && item.preview_url && /^https:\/\/p\.scdn\.co\//i.test(item.preview_url)) {
         return item.preview_url;
     }
-    if (item.preview_url || /rapidcdn\.app|secure-signed\.pages\.dev/i.test(item.url || '')) {
-        return proxied(item, title, kind, true);
-    }
-    return item.url;
+    return proxied(item, title, kind, true);
 }
 function renderJson(j, srcUrl, append, allowAutoDl) {
     var res = $('result'); if (!res) return;
@@ -410,6 +423,11 @@ function renderJson(j, srcUrl, append, allowAutoDl) {
     var dl = j.downloads || {};
     var videos = dl.video || [], audios = dl.audio || [], images = dl.image || [], subs = dl.subtitles || [];
     var posterUrl = info.thumbnail ? apiLink('/api/download', { url: info.thumbnail, filename: 'thumb', ext: 'jpg', inline: '1' }) : '';
+    var ytEmbedUrl = info.embed_url || (videos[0] && videos[0].embed_url) || '';
+    if (!ytEmbedUrl) {
+        var ytMatch = String(info.webpage_url || srcUrl || '').match(/(?:[?&]v=|youtu\.be\/|\/embed\/|\/shorts\/|\/live\/)([A-Za-z0-9_-]{11})/);
+        if (ytMatch) ytEmbedUrl = 'https://www.youtube.com/embed/' + ytMatch[1] + '?playsinline=1&rel=0';
+    }
 
     var h = '<div class="result-header"><span class="rh-title">' + esc(String(title).slice(0, 80)) + '</span><span class="result-badge">' + esc(badge) + '</span></div><div class="result-body">';
     h += '<div class="result-meta-line">' +
@@ -420,18 +438,24 @@ function renderJson(j, srcUrl, append, allowAutoDl) {
 
     /* Video: player inline + pemilih kualitas */
     if (videos.length) {
-        var v0Src = inlineMediaSrc(videos[0], title, 'video');
         h += '<div class="sec-label">' + ic('film', 14) + ' ' + esc(t('sec.video')) + '</div>';
-        h += '<div class="vplayer"><video controls playsinline preload="metadata"' + (posterUrl ? ' poster="' + esc(posterUrl) + '"' : '') + ' src="' + esc(v0Src) + '"></video></div>';
-        h += '<div class="vq-row">';
-        videos.forEach(function (v, i) {
-            h += '<button type="button" class="vq-btn' + (i === 0 ? ' active' : '') + '" data-vq="' + i + '">' + esc(shortQ(v)) + (v.has_audio === false ? ' <em>(' + esc(t('opt.noaudio')) + ')</em>' : '') + '</button>';
-        });
-        h += '</div>';
+        if (ytEmbedUrl) {
+            h += '<div class="vplayer yt-embed-wrap"><iframe class="yt-embed-frame" src="' + esc(ytEmbedUrl) + '" title="' + esc(title) + '" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>';
+        } else {
+            var v0Src = inlineMediaSrc(videos[0], title, 'video');
+            h += '<div class="vplayer"><video controls playsinline preload="metadata"' + (posterUrl ? ' poster="' + esc(posterUrl) + '"' : '') + ' src="' + esc(v0Src) + '"></video></div>';
+            if (videos.length > 1) {
+                h += '<div class="vq-row">';
+                videos.forEach(function (v, i) {
+                    h += '<button type="button" class="vq-btn' + (i === 0 ? ' active' : '') + '" data-vq="' + i + '">' + esc(shortQ(v)) + (v.has_audio === false ? ' <em>(' + esc(t('opt.noaudio')) + ')</em>' : '') + '</button>';
+                });
+                h += '</div>';
+            }
+        }
         videos.forEach(function (v, i) {
             var sizeStr = (v.filesize_label && v.filesize_label !== 'Unknown') ? ' • ' + v.filesize_label : '';
             h += '<div class="opt-row" data-vr="' + i + '"><span class="opt-meta">' + esc(v.quality || shortQ(v)) + ' • ' + esc((v.extension || 'mp4').toUpperCase()) + esc(sizeStr) + '</span>' +
-                '<span class="opt-actions"><a class="dl-btn' + (i === 0 ? ' best' : '') + '" href="' + esc(proxied(v, title, 'video')) + '" download>' + ic('download', 13) + ' ' + esc(i === 0 ? t('opt.best') : t('opt.dl')) + '</a>' +
+                '<span class="opt-actions"><a class="dl-btn' + (i === 0 ? ' best' : '') + '" href="' + esc(proxied(v, title, 'video')) + '">' + ic('download', 13) + ' ' + esc(i === 0 ? t('opt.best') : t('opt.dl')) + '</a>' +
                 '<button type="button" class="mini-btn plain" data-act="copy" title="Copy URL">' + ic('copy', 13) + '</button>' +
                 '<button type="button" class="mini-btn plain" data-act="qr" title="QR Code">' + ic('qr', 13) + '</button></span>' +
                 '<div class="qr-cell hidden"></div></div>';
@@ -439,13 +463,17 @@ function renderJson(j, srcUrl, append, allowAutoDl) {
     }
     /* Audio */
     if (audios.length) {
-        var a0Src = inlineMediaSrc(audios[0], title, 'audio');
+        var showAudioPlayer = !videos.length || Boolean(audios[0].preview_url && !/api\.nexadev\.my\.id\/api\/ytmp4/i.test(audios[0].url || ''));
         h += '<div class="sec-label">' + ic('music', 14) + ' ' + esc(t('sec.audio')) + '</div>';
-        h += '<div class="audio-card"><div class="ac-title">' + esc(String(title).slice(0, 75)) + '</div><audio controls preload="metadata" src="' + esc(a0Src) + '"></audio></div>';
+        if (showAudioPlayer) {
+            var a0Src = inlineMediaSrc(audios[0], title, 'audio');
+            var aPreload = /secure-signed\.pages\.dev\/token\//i.test(audios[0].preview_url || audios[0].url || '') ? 'none' : 'metadata';
+            h += '<div class="audio-card"><div class="ac-title">' + esc(String(title).slice(0, 75)) + '</div><audio controls preload="' + aPreload + '" src="' + esc(a0Src) + '"></audio></div>';
+        }
         audios.forEach(function (a, i) {
             var aSizeStr = (a.filesize_label && a.filesize_label !== 'Unknown') ? ' • ' + a.filesize_label : '';
             h += '<div class="opt-row"><span class="opt-meta">' + esc(a.quality || 'Audio') + ' • ' + esc((a.extension || 'mp3').toUpperCase()) + esc(aSizeStr) + '</span>' +
-                '<span class="opt-actions"><a class="dl-btn' + (i === 0 ? ' best' : '') + '" href="' + esc(proxied(a, title, 'audio')) + '" download>' + ic('download', 13) + ' ' + esc(i === 0 ? t('opt.best') : t('opt.dl')) + '</a>' +
+                '<span class="opt-actions"><a class="dl-btn' + (i === 0 && !videos.length ? ' best' : '') + '" href="' + esc(proxied(a, title, 'audio')) + '">' + ic('download', 13) + ' ' + esc(i === 0 && !videos.length ? t('opt.best') : t('opt.dl')) + '</a>' +
                 '<button type="button" class="mini-btn plain" data-au="' + esc(a.url) + '" title="Copy URL">' + ic('copy', 13) + '</button></span></div>';
         });
     }
@@ -454,13 +482,13 @@ function renderJson(j, srcUrl, append, allowAutoDl) {
         h += '<div class="sec-label">' + ic('image', 14) + ' ' + esc(t('sec.img')) + ' (' + images.length + ')</div><div class="img-gallery">';
         images.forEach(function (im, i) {
             var inlineImg = proxied(im, title + '_' + (i + 1), 'image', true);
-            h += '<img loading="lazy" src="' + esc(im.thumbnail || im.url) + '" data-fallback="' + esc(inlineImg) + '" alt="img" data-gi="' + i + '" onerror="if(this.dataset.fallback&&this.src!==this.dataset.fallback){this.src=this.dataset.fallback;}else{this.style.display=\'none\';}">';
+            h += '<img loading="lazy" src="' + esc(inlineImg) + '" data-fallback="' + esc(im.thumbnail || im.url) + '" alt="img" data-gi="' + i + '" onerror="if(this.dataset.fallback&&this.src!==this.dataset.fallback){this.src=this.dataset.fallback;}else{this.style.display=\'none\';}">';
         });
         h += '</div>';
         images.forEach(function (im, i) {
             var iSizeStr = (im.filesize_label && im.filesize_label !== 'Unknown') ? ' • ' + im.filesize_label : '';
             h += '<div class="opt-row"><span class="opt-meta">' + esc(im.quality || ('Foto ' + (i + 1))) + esc(iSizeStr) + '</span>' +
-                '<a class="dl-btn best" href="' + esc(proxied(im, title + '_' + (i + 1), 'image')) + '" download>' + ic('download', 13) + ' ' + esc(t('opt.save')) + '</a></div>';
+                '<a class="dl-btn best" href="' + esc(proxied(im, title + '_' + (i + 1), 'image')) + '">' + ic('download', 13) + ' ' + esc(t('opt.save')) + '</a></div>';
         });
     }
     /* Subtitle */
@@ -468,7 +496,7 @@ function renderJson(j, srcUrl, append, allowAutoDl) {
         h += '<div class="sec-label">' + ic('captions', 14) + ' ' + esc(t('sec.sub')) + '</div><div class="sub-grid">';
         subs.forEach(function (s) {
             var lbl = (s.lang || '?').toUpperCase() + ' • ' + (s.ext || 'vtt') + ' • ' + (s.auto ? t('sub.auto') : t('sub.manual'));
-            h += '<a class="sub-chip" href="' + esc(s.url) + '" download target="_blank" rel="noopener">' + esc(lbl) + '</a>';
+            h += '<a class="sub-chip" href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(lbl) + '</a>';
         });
         h += '</div>';
     }
@@ -493,6 +521,14 @@ function renderJson(j, srcUrl, append, allowAutoDl) {
     h += '</div>';
     card.innerHTML = h;
     res.appendChild(card);
+
+    /* Intersep semua tombol download (.dl-btn) agar menggunakan iframe bebas download.json */
+    Array.prototype.forEach.call(card.querySelectorAll('a.dl-btn'), function (a) {
+        a.onclick = function (ev) {
+            ev.preventDefault();
+            startSmartDownload(a.getAttribute('href'), title);
+        };
+    });
 
     /* Video player fallback ke proxy inline jika CDN memblokir CORS/Referer */
     var player = card.querySelector('.vplayer video');

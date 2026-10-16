@@ -1,5 +1,5 @@
 // Service Worker — network-first agar perubahan UI/fitur selalu segar, fallback cache saat offline
-const CACHE = 'ultra-dl-v11';
+const CACHE = 'ultra-dl-v12';
 const ASSETS = [
   '/', '/index.html', '/docs.html', '/share.html', '/offline.html',
   '/tos.html', '/privacy.html', '/dmca.html',
