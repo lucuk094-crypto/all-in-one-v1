@@ -737,25 +737,57 @@ setTimeout(hideSplash, 2500);
 
 /* ---------- PWA ---------- */
 var deferredPrompt = null;
+function isStandalonePwa() {
+    try {
+        return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+            || window.navigator.standalone === true;
+    } catch (e) { return false; }
+}
+function syncPwaBtn() {
+    var b = $('installBtn');
+    if (!b) return;
+    if (isStandalonePwa()) b.classList.add('hidden');
+    else b.classList.remove('hidden');
+}
+function openPwaModal() { var m = $('pwaModal'); if (m) m.classList.remove('hidden'); }
+function closePwaModal() { var m = $('pwaModal'); if (m) m.classList.add('hidden'); }
 window.addEventListener('beforeinstallprompt', function (e) {
-    e.preventDefault(); deferredPrompt = e;
-    var b = $('installBtn'); if (b) b.classList.remove('hidden');
+    e.preventDefault();
+    deferredPrompt = e;
+    var b = $('installBtn');
+    if (b) { b.classList.remove('hidden'); b.classList.add('pwa-ready'); }
+});
+window.addEventListener('appinstalled', function () {
+    deferredPrompt = null;
+    closePwaModal();
+    var b = $('installBtn');
+    if (b) b.classList.add('hidden');
+    toast(t('install.done'));
 });
 async function installPwa() {
-    if (!deferredPrompt) { toast(t('install.manual')); return; }
-    deferredPrompt.prompt();
-    try { await deferredPrompt.userChoice; toast(t('install.done')); } catch (e) { }
-    deferredPrompt = null;
-    var b = $('installBtn'); if (b) b.classList.add('hidden');
+    if (deferredPrompt) {
+        deferredPrompt.prompt();
+        try {
+            var choice = await deferredPrompt.userChoice;
+            if (choice && choice.outcome === 'accepted') {
+                toast(t('install.done'));
+                var b = $('installBtn'); if (b) b.classList.add('hidden');
+            }
+        } catch (e) { }
+        deferredPrompt = null;
+        return;
+    }
+    var m = $('pwaModal');
+    if (m) openPwaModal();
+    else toast(t('install.manual'));
 }
 
 /* ---------- boot ---------- */
 document.addEventListener('DOMContentLoaded', function () {
     syncAutoDlUi();
+    syncPwaBtn();
     renderHistory();
     initServer();
-    var ib = $('installBtn');
-    if (ib) ib.addEventListener('click', installPwa);
     var inp = $('urlInput');
     if (inp) {
         inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') fetchMedia(); });
@@ -772,6 +804,6 @@ document.addEventListener('DOMContentLoaded', function () {
             fetchMedia();
         });
     });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeLightbox(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeLightbox(); closePwaModal(); } });
 });
 window.addEventListener('error', function (ev) { logClient('window: ' + (ev.error && ev.error.message || ev.message || 'err')); });

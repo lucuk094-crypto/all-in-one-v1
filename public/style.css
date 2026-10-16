@@ -175,40 +175,115 @@ body {
 .brand-container {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     text-decoration: none;
+    group: brand;
 }
 
 .nav-logo-img {
-    width: 38px;
-    height: 38px;
+    width: 42px;
+    height: 42px;
     object-fit: cover;
-    border-radius: 8px;
+    border-radius: 9px;
     border: 2.5px solid var(--accent-secondary);
     box-shadow: 3px 3px 0 var(--accent-primary);
     background: #090a0f;
     flex-shrink: 0;
+    animation: navLogoPulse 3.2s ease-in-out infinite;
+    transition: transform 0.2s var(--ease-bounce);
+}
+.brand-container:hover .nav-logo-img {
+    transform: rotate(-4deg) scale(1.07);
 }
 
-.brand-mark {
-    font-family: var(--font-mono);
-    font-weight: 900;
-    font-size: 0.82rem;
-    color: #0a0a0a;
-    background: var(--accent-secondary);
-    padding: 6px 10px;
-    letter-spacing: 1.5px;
-    border: 2.5px solid #0a0a0a;
-    box-shadow: 3px 3px 0 var(--accent-primary);
-    border-radius: 4px;
+@keyframes navLogoPulse {
+    0%, 100% {
+        box-shadow: 3px 3px 0 var(--accent-primary), 0 0 0 rgba(204, 255, 0, 0);
+        transform: translateY(0);
+    }
+    50% {
+        box-shadow: 4px 4px 0 var(--accent-cyan), 0 0 14px rgba(204, 255, 0, 0.38);
+        transform: translateY(-2px);
+    }
+}
+
+.brand-title-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    line-height: 1.05;
 }
 
 .brand-glitch {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
     font-weight: 900;
-    font-size: 1.35rem;
-    letter-spacing: -0.5px;
+    font-size: 1.32rem;
+    letter-spacing: -0.4px;
     color: var(--text-primary);
     text-transform: uppercase;
+    position: relative;
+}
+
+.brand-ultra-word {
+    background: linear-gradient(90deg, #ffffff 0%, #ccff00 35%, #00f5d4 65%, #ffffff 100%);
+    background-size: 220% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    filter: drop-shadow(2px 2px 0 #0a0a0a);
+    animation: ultraTextShimmer 3.6s linear infinite;
+}
+[data-theme="light"] .brand-ultra-word {
+    background: linear-gradient(90deg, #0a0a0a 0%, #6d28d9 40%, #db2777 75%, #0a0a0a 100%);
+    background-size: 220% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: none;
+}
+
+.brand-dl-word {
+    background: var(--accent-secondary);
+    color: #0a0a0a;
+    padding: 2px 8px;
+    border: 2px solid #0a0a0a;
+    border-radius: 5px;
+    font-size: 0.92rem;
+    letter-spacing: 0.5px;
+    box-shadow: 3px 3px 0 var(--accent-primary);
+    animation: dlBadgeFloat 3.6s ease-in-out infinite;
+}
+
+.brand-sub-tag {
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    font-weight: 800;
+    letter-spacing: 1.4px;
+    color: var(--accent-cyan);
+    text-transform: uppercase;
+}
+[data-theme="light"] .brand-sub-tag {
+    color: var(--accent-primary);
+}
+
+@keyframes ultraTextShimmer {
+    0% { background-position: 0% center; }
+    100% { background-position: 220% center; }
+}
+
+@keyframes dlBadgeFloat {
+    0%, 100% {
+        transform: translate(0, 0) skewX(-3deg);
+        box-shadow: 3px 3px 0 var(--accent-primary);
+    }
+    50% {
+        transform: translate(-1px, -1px) skewX(-3deg);
+        box-shadow: 4px 4px 0 var(--accent-tertiary);
+    }
 }
 
 .brand-box {
@@ -2054,4 +2129,134 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* ============================================================
+   PWA INSTALL BUTTON & MODAL + SPLASH TEXT ANIMATION
+   ============================================================ */
+.splash-ultra-word {
+    background: linear-gradient(90deg, #ffffff 0%, #ccff00 40%, #00f5d4 75%, #ffffff 100%);
+    background-size: 220% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: ultraTextShimmer 3s linear infinite;
+}
+
+.install-pwa-btn {
+    background: var(--accent-cyan) !important;
+    color: #0a0a0a !important;
+    border-color: #0a0a0a !important;
+    font-weight: 900;
+}
+.install-pwa-btn.pwa-ready {
+    animation: pwaPulseBtn 2.4s ease-in-out infinite;
+}
+@keyframes pwaPulseBtn {
+    0%, 100% { box-shadow: 4px 4px 0 var(--accent-primary); }
+    50% { box-shadow: 4px 4px 0 var(--accent-secondary), 0 0 12px rgba(0, 245, 212, 0.45); }
+}
+
+.pwa-modal-box {
+    max-width: 480px;
+    width: 92%;
+}
+
+.pwa-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.pwa-hero-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px;
+    background: var(--card-inner-bg);
+    border: 2.5px solid var(--nb-border);
+    border-radius: var(--radius-sm);
+}
+
+.pwa-modal-logo {
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+    object-fit: cover;
+    border: 2.5px solid var(--accent-secondary);
+    box-shadow: 3px 3px 0 var(--accent-primary);
+    flex-shrink: 0;
+}
+
+.pwa-app-name {
+    font-weight: 900;
+    font-size: 1.15rem;
+    color: var(--text-primary);
+    text-transform: uppercase;
+}
+
+.pwa-app-dev {
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--accent-secondary);
+    font-weight: 700;
+    margin-top: 2px;
+}
+[data-theme="light"] .pwa-app-dev {
+    color: var(--accent-primary);
+}
+
+.pwa-steps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pwa-step-item {
+    background: var(--card-inner-bg);
+    border: 2px solid var(--nb-border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+}
+
+.pwa-step-badge {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 900;
+    background: var(--accent-secondary);
+    color: #0a0a0a;
+    border: 1.5px solid #0a0a0a;
+    border-radius: 4px;
+    padding: 2px 8px;
+    margin-bottom: 6px;
+}
+
+.pwa-step-item p {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+    .brand-glitch {
+        font-size: 1.02rem;
+        gap: 5px;
+    }
+    .brand-dl-word {
+        font-size: 0.74rem;
+        padding: 2px 6px;
+    }
+    .brand-sub-tag {
+        font-size: 0.56rem;
+    }
+    .nav-actions {
+        gap: 6px;
+    }
+    .nav-btn {
+        padding: 7px 10px;
+        font-size: 0.74rem;
+    }
+}
+
 
