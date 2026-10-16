@@ -112,13 +112,14 @@ export function getClientIp(req) {
 }
 
 const rlMem = new Map();
-export async function apiRateLimit(req, res, { max = 30, windowSec = 60 } = {}) {
+const DEFAULT_RL_MAX = parseInt(process.env.RATE_LIMIT_MAX, 10) || 180;
+export async function apiRateLimit(req, res, { max = DEFAULT_RL_MAX, windowSec = 60, prefix = 'rl' } = {}) {
   const ip = getClientIp(req);
   const bucket = Math.floor(Date.now() / 1000 / windowSec);
   let n = 1;
   if (USE_UPSTASH) {
     try {
-      const k = `rl:${ip}:${bucket}`;
+      const k = `${prefix}:${ip}:${bucket}`;
       n = await upstash('INCR', k);
       if (n === 1) await upstash('EXPIRE', k, windowSec + 10);
     } catch { n = memBump(); }
@@ -126,7 +127,7 @@ export async function apiRateLimit(req, res, { max = 30, windowSec = 60 } = {}) 
     n = memBump();
   }
   function memBump() {
-    const k = `${ip}:${bucket}`;
+    const k = `${prefix}:${ip}:${bucket}`;
     const v = (rlMem.get(k) || 0) + 1;
     rlMem.set(k, v);
     if (rlMem.size > 5000) {
@@ -2240,16 +2241,22 @@ export function getHealth() {
   });
 }
 
+const EXT_MIME = {
+  mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', mkv: 'video/x-matroska',
+  mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', opus: 'audio/opus', weba: 'audio/webm', flac: 'audio/flac',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+};
+
 // Proxy download langsung (bebas CORS) — pakai fetch bawaan Node
 export async function proxyDownload(req, res) {
-  if (!(await apiRateLimit(req, res))) return;
+  if (!(await apiRateLimit(req, res, { max: 300, prefix: 'dl' }))) return;
   const t0 = Date.now();
   const v = validateTargetUrl(req.query?.url);
   if (!v.ok) { logReq('download', 'cdn', false, Date.now() - t0, v.error); return res.status(400).json({ success: false, error: v.error }); }
 
+  const ext = String(req.query?.ext || 'mp4').replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 5) || 'mp4';
   let filename = sanitizeFilename(req.query?.filename, 'download');
   if (!/\.\w{2,5}$/.test(filename)) {
-    const ext = String(req.query?.ext || 'mp4').replace(/[^a-z0-9]/gi, '').slice(0, 5) || 'mp4';
     filename += `.${ext}`;
   }
 
@@ -2276,8 +2283,11 @@ export async function proxyDownload(req, res) {
     const isInline = req.query?.inline === '1';
     if (up.status === 206) res.status(206);
     res.setHeader('Content-Disposition', `${isInline ? 'inline' : 'attachment'}; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    const ct = up.headers.get('content-type');
-    if (ct) res.setHeader('Content-Type', ct);
+    let ct = up.headers.get('content-type') || '';
+    if (!ct || /octet-stream/i.test(ct) || (ext === 'mp3' && /video\/mp4/i.test(ct))) {
+      ct = EXT_MIME[ext] || ct || 'application/octet-stream';
+    }
+    res.setHeader('Content-Type', ct);
     const cl = up.headers.get('content-length');
     if (cl) res.setHeader('Content-Length', cl);
     const cr = up.headers.get('content-range');

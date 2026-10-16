@@ -33,10 +33,22 @@
 <body>
 
     <div id="splash" onclick="hideSplash()" role="status" aria-label="Loading">
-        <img class="splash-logo" src="/icons/icon-512.png" alt="Ultra Downloader">
+        <svg class="splash-logo" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-label="Ultra Downloader">
+            <rect x="6" y="6" width="108" height="108" rx="22" fill="#090a0f" stroke="#ccff00" stroke-width="6"/>
+            <rect x="16" y="16" width="88" height="88" rx="14" fill="#7c3aed" stroke="#ffffff" stroke-width="3"/>
+            <path d="M46 28 H74 V56 H90 L60 88 L30 56 H46 Z" fill="#ccff00" stroke="#090a0f" stroke-width="5" stroke-linejoin="round"/>
+            <rect x="32" y="92" width="56" height="8" rx="3" fill="#ffffff" stroke="#090a0f" stroke-width="3"/>
+        </svg>
         <div class="splash-brand">ULTRA<small>ALL-IN-ONE DOWNLOADER</small></div>
         <div class="splash-bar"><i></i></div>
     </div>
+    <script>
+      function hideSplash() {
+        var sp = document.getElementById('splash');
+        if (sp) sp.classList.add('splash-hide');
+      }
+      setTimeout(hideSplash, 600);
+    </script>
 
     <svg width="0" height="0" style="position:absolute" aria-hidden="true">
         <defs>
@@ -88,7 +100,11 @@
 
                 <div class="card-header-visual">
                     <div class="profile-section">
-                        <img src="63985eb0b043dbf2bcdc175f50acb386.jpg" alt="Ultra Downloader Official" class="avatar-img" id="userAvatar">
+                        <svg class="avatar-img" id="userAvatar" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ultra Downloader Logo">
+                            <rect x="2" y="2" width="76" height="76" rx="14" fill="#090a0f"/>
+                            <path d="M30 14 H50 V38 H62 L40 60 L18 38 H30 Z" fill="#ccff00" stroke="#ffffff" stroke-width="3" stroke-linejoin="round"/>
+                            <rect x="20" y="64" width="40" height="6" rx="2" fill="#00f0ff"/>
+                        </svg>
                         <div class="profile-info">
                             <span class="user-role" data-i18n="hero.role">ULTRA DOWNLOADER // ALL-IN-ONE ENGINE</span>
                             <span class="user-action" data-i18n="hero.action">TEMPEL TAUTAN MEDIA DI BAWAH</span>

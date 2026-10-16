@@ -1,5 +1,5 @@
-// Service Worker — cache aset statis, network untuk API
-const CACHE = 'ultra-dl-v5';
+// Service Worker — network-first agar perubahan UI/fitur selalu segar, fallback cache saat offline
+const CACHE = 'ultra-dl-v6';
 const ASSETS = [
   '/', '/index.html', '/docs.html', '/share.html', '/offline.html',
   '/tos.html', '/privacy.html', '/dmca.html',
@@ -21,23 +21,16 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const u = new URL(e.request.url);
   if (e.request.method !== 'GET' || u.origin !== location.origin) return;
-  // API: selalu network
   if (u.pathname.startsWith('/api/')) return;
-  // Navigasi: network-first, fallback cache/offline
-  if (e.request.mode === 'navigate') {
-    e.respondWith(
-      fetch(e.request).catch(() => caches.match(e.request).then((r) => r || caches.match('/offline.html')))
-    );
-    return;
-  }
-  // Aset: cache-first
   e.respondWith(
-    caches.match(e.request).then((hit) => {
-      const net = fetch(e.request).then((res) => {
-        if (res.ok) caches.open(CACHE).then((c) => c.put(e.request, res.clone()));
+    fetch(e.request)
+      .then((res) => {
+        if (res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, clone)).catch(() => {});
+        }
         return res;
-      }).catch(() => hit);
-      return hit || net;
-    })
+      })
+      .catch(() => caches.match(e.request).then((r) => r || (e.request.mode === 'navigate' ? caches.match('/offline.html') : undefined)))
   );
 });

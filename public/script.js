@@ -2,7 +2,7 @@
    Kontrak backend: POST /api/index, GET /api/search, POST /api/job, GET /api/job/:id, GET /api/file/:id */
 'use strict';
 
-var SERVER = { trim: true, mp3: true, merge: true, search: true, batch: true, maxBatch: 10, turnstileSite: null, umamiUrl: null, umamiId: null };
+var SERVER = { trim: false, mp3: true, merge: true, search: true, batch: true, maxBatch: 10, turnstileSite: null, umamiUrl: null, umamiId: null };
 var CAPTCHA_TOKEN = '';
 var GALLERY = [];
 var LB_INDEX = 0;
@@ -393,8 +393,9 @@ function renderJson(j, srcUrl, append) {
     }
     /* Konversi Server */
     var canConvert = videos.length || audios.length;
+    var canMp3 = SERVER.mp3 && (audios.length > 0 || /youtu\.?be/i.test(srcUrl) || SERVER.trim);
     if (canConvert) {
-        if (SERVER.mp3) {
+        if (canMp3) {
             h += '<div class="sec-label">' + ic('music', 14) + ' MP3 CONVERTER</div><div class="convert-row"><button type="button" class="mini-btn" data-job="mp3">' + ic('music', 13) + ' ' + esc(t('mp3.btn')) + '</button></div><div class="hint-text">' + esc(t('mp3.note')) + '</div>';
         }
         if (SERVER.merge && videos.length && info.has_split) {
